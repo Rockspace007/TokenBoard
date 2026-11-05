@@ -1,0 +1,3 @@
+{"timestamp":"2026-11-05T10:00:00.000Z","sessionId":"wb-abc12345","role":"assistant","providerData":{"model":"hy4-free","rawUsage":{"prompt_tokens":1000,"completion_tokens":100,"total_tokens":1100,"prompt_cache_hit_tokens":700,"prompt_tokens_details":{"cached_creation_tokens":100}}}}
+{"timestamp":"2026-11-05T11:00:00.000Z","sessionId":"wb-abc12345","role":"assistant","providerData":{"model":"hy3","usage":{"inputTokens":2000,"outputTokens":200,"totalTokens":2200}}}
+{"timestamp":"2026-11-05T11:30:00.000Z","sessionId":"wb-abc12345","role":"user","content":"这一行没有 usage，应被跳过"}

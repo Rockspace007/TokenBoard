@@ -1,0 +1,2 @@
+{"timestamp":"2026-11-05T13:00:00Z","type":"event_msg","payload":{"type":"token_count","model":"gpt-5-codex","info":{"last_token_usage":{"input_tokens":500,"output_tokens":50,"total_tokens":550,"cache_read_input_tokens":300}}}}
+{"timestamp":"2026-11-05T13:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":999999,"output_tokens":999999}}}}

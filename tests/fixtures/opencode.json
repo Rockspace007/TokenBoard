@@ -1,0 +1,4 @@
+[
+  {"timestamp":"2026-11-05T14:00:00Z","sessionId":"oc-1","model":"qwen3-coder","usage":{"prompt_tokens":800,"completion_tokens":80,"total_tokens":880}},
+  {"timestamp":"2026-11-05T15:00:00Z","sessionId":"oc-1","model":"glm-4.6","usage":{"prompt_tokens":600,"completion_tokens":60}}
+]

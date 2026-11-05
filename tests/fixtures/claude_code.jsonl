@@ -1,0 +1,2 @@
+{"timestamp":"2026-11-05T12:00:00.000Z","sessionId":"cc-1","type":"assistant","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":3000,"output_tokens":400,"cache_read_input_tokens":2000,"cache_creation_input_tokens":200}}}
+{"timestamp":"2026-11-05T12:30:00.000Z","sessionId":"cc-1","type":"user","message":{"role":"user","content":"无 usage 行"}}

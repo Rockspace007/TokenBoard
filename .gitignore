@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 构建产物与生成的看板
+dist/
+*.tgz
+tokenboard.html
+*.local.html
+
+# 本机数据（绝不入库）
+*.jsonl
+!tests/fixtures/*.jsonl
+tests/fixtures/_prices.json
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# WorkBuddy 项目数据：不是临时缓存，不删也不提交
+.workbuddy/

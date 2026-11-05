@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokenboard"
+version = "0.1.0"
+description = "多平台 LLM Token 消耗看板：绿色系主题 + 模型厂商品牌色，零第三方依赖、单文件离线 HTML"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "TokenBoard contributors" }]
+keywords = ["token", "usage", "dashboard", "llm", "mcp", "workbuddy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Utilities",
+]
+# 运行时零依赖：构建期用 setuptools，运行期只用标准库
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+tokenboard = "tokenboard.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-name/tokenboard"
+Issues = "https://github.com/your-name/tokenboard/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tokenboard*"]
+
+[tool.setuptools.package-data]
+tokenboard = ["py.typed"]
