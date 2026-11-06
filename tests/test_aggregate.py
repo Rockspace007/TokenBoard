@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tokenboard.aggregate import summarize  # noqa: E402
-from tokenboard.brands import color_of, theme, vendor_of  # noqa: E402
+from tokenboard.aggregate import percentile, summarize  # noqa: E402
+from tokenboard.brands import color_of, palette_for, theme, vendor_of  # noqa: E402
 from tokenboard.models import UsageRecord  # noqa: E402
 from tokenboard.pricing import cost_cny, load_prices, price_of  # noqa: E402
 
@@ -79,12 +79,48 @@ class TestSummary(unittest.TestCase):
         json.dumps(s.to_dict(), ensure_ascii=False)
         self.assertEqual(s.to_dict()["models"][0]["vendor"], "腾讯混元")
 
+    def test_new_dimensions(self):
+        """看板新模块的数据源：分模型小时、日×时矩阵、工作空间会话、请求大小分位。"""
+        s = summarize([
+            rec(ts=TS, session_id="s1", total_tokens=1100),                     # 10:00 (UTC+8)
+            rec(ts=TS + 3600 * 14, session_id="s1", model="hy3",
+                input_tokens=400, output_tokens=100, total_tokens=500),
+            rec(ts=TS + 86400, session_id="s2", workspace="proj2",
+                input_tokens=2000, output_tokens=0, total_tokens=2000),
+        ])
+        self.assertEqual(len(s.hourly_by_model["hy4-free"]), 24)
+        self.assertEqual(len(s.hour_matrix), 2)
+        self.assertEqual(len(s.ws_sessions["proj"]), 1)      # 两条记录同一会话
+        self.assertEqual(len(s.ws_sessions["proj2"]), 1)
+        self.assertEqual(sorted(s.model_sizes["hy4-free"]), [1100, 2000])
+        self.assertAlmostEqual(percentile([1, 2, 3, 4], 50), 2.5)
+        self.assertAlmostEqual(percentile([10], 90), 10.0)
+        dist = s.distribution(top=2)
+        self.assertEqual(dist["models"][0]["name"], "hy4-free")
+        self.assertEqual(dist["models"][0]["count"], 2)
+        self.assertGreater(dist["global_p50"], 0)
+        self.assertAlmostEqual(s.to_dict()["workspaces"][0]["sessions"], 1)
+
+
+class TestPaletteCollide(unittest.TestCase):
+    def test_same_vendor_ladder_darkens(self):
+        """hy4-free / hy3 同为腾讯混元：第 2 个模型必须压暗而不是撞色。"""
+        palette = palette_for(["hy4-free", "hy3"])
+        self.assertEqual(palette["hy4-free"], "#00E5A0")
+        self.assertNotEqual(palette["hy3"], "#00E5A0")
+        self.assertEqual(color_of("hy4-free"), "#00E5A0")
+
+    def test_different_vendors_keep_brand_colors(self):
+        palette = palette_for(["deepseek-chat", "claude-sonnet-4-5"])
+        self.assertEqual(palette["deepseek-chat"], "#4D6BFE")
+        self.assertEqual(palette["claude-sonnet-4-5"], "#D97757")
+
 
 class TestBrands(unittest.TestCase):
     def test_brand_colors(self):
         self.assertEqual(color_of("deepseek-chat"), "#4D6BFE")
         self.assertEqual(color_of("claude-sonnet-4-5"), "#D97757")
-        self.assertEqual(color_of("hy4-free"), "#00A3B5")
+        self.assertEqual(color_of("hy4-free"), "#00E5A0")
         self.assertEqual(vendor_of("gpt-5"), "OpenAI")
 
     def test_unknown_model_is_stable_and_green(self):
@@ -93,8 +129,8 @@ class TestBrands(unittest.TestCase):
         self.assertEqual(a, b, "同一模型必须稳定同色")
 
     def test_theme_fallback(self):
-        self.assertEqual(theme("no-such-theme"), theme("dark"))
-        self.assertIn("brand", theme("light"))
+        self.assertEqual(theme("no-such-theme"), theme("light"))
+        self.assertIn("brand", theme("dark"))
 
 
 if __name__ == "__main__":

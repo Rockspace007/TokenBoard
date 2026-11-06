@@ -39,6 +39,24 @@ def parse_date(text: str) -> int:
     raise argparse.ArgumentTypeError(f"无法解析日期 {text!r}；用 YYYY-MM-DD 或 7d")
 
 
+def window_label(since: int | None) -> str:
+    """把 --since 归纳成看板顶部的周期标签；无 --since 时默认近 30 天。"""
+    if since is None:
+        return "近 30 天"
+    days = round((datetime.now().timestamp() - since) / 86400)
+    if 0 <= days <= 365:
+        return "1 天" if days <= 1 else f"近 {days} 天"
+    return "自定义窗口"
+
+
+def window_days(since: int | None) -> int | None:
+    """窗口覆盖的自然天数；自定义绝对日期返回 None（无法断言空窗）。"""
+    if since is None:
+        return 30
+    days = round((datetime.now().timestamp() - since) / 86400)
+    return days if 0 <= days <= 365 else None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tokenboard",
@@ -54,9 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--until", type=parse_date, help="结束时间（不含），YYYY-MM-DD")
     s.add_argument("--out", help="输出文件路径；默认 html 写 tokenboard.html，其余写 stdout")
     s.add_argument("--format", choices=("html", "json", "table"), default="html")
-    s.add_argument("--theme", choices=("dark", "light"), default="dark")
+    s.add_argument("--theme", choices=("dark", "light"), default="light")
     s.add_argument("--prices", help="自定义价格表 JSON：{模型前缀: [输入, 输出, 缓存读取]}")
-    s.add_argument("--title", default="TokenBoard · 多平台消耗洞察")
+    s.add_argument("--title", default="TokenBoard · 消耗洞察")
     s.add_argument("--window-note", default="", help="写在结论条上的数据覆盖提示")
 
     sub.add_parser("platforms", help="列出平台适配器与本机动静状态")
@@ -116,12 +134,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
     elif args.format == "table":
         text = _table(summary, result)
     else:
+        label = window_label(args.since)
         note = args.window_note
-        if not note and (args.since or args.until) and summary.active_days:
-            note = f"当前为自定义时间窗，实际仅 {summary.active_days} 天有数据；空窗不参与日均计算。"
+        if not note:
+            expected = window_days(args.since)
+            if expected and summary.active_days and summary.active_days < expected:
+                note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
+                        "日均按有数据日计算，空窗不计入")
         text = render_html(
             summary, result.records, result.statuses,
             theme_name=args.theme, title=args.title, window_note=note,
+            window_label=label,
         )
 
     out = args.out or ("tokenboard.html" if args.format == "html" else None)

@@ -122,7 +122,7 @@ def _tool_render(args: dict[str, Any]) -> dict[str, Any]:
     result, summary = _do_scan(args)
     html = render_html(
         summary, result.records, result.statuses,
-        theme_name=args.get("theme", "dark"),
+        theme_name=args.get("theme", "light"),
         title=args.get("title", "TokenBoard · 多平台消耗洞察"),
     )
     out.parent.mkdir(parents=True, exist_ok=True)

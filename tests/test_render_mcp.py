@@ -46,15 +46,23 @@ class TestRender(unittest.TestCase):
 
     def test_green_tokens_and_brand_colors(self):
         html = render_html(self.summary, self.records, self.statuses)
-        self.assertIn("--bg:#0E1A16", html, "深色绿主题令牌必须注入")
-        self.assertIn("--brand:#1F6F63", html)
+        self.assertIn("--bg:#0A0B0C", html, "暗夜玻璃深色令牌必须注入")
+        self.assertIn("--brand:#D4FF2B", html, "深色主题荧光黄绿强调色必须注入")
         self.assertIn("#4D6BFE", html, "DeepSeek 品牌色应出现在数据系列")
         self.assertIn("#D97757", html, "Anthropic 品牌色应出现在数据系列")
 
     def test_light_theme(self):
         html = render_html(self.summary, self.records, theme_name="light")
         self.assertIn('data-theme="light"', html)
-        self.assertIn("--bg:#F5F7F6", html)
+        self.assertIn("--bg:#FFFFFF", html)
+        self.assertIn("--brand:#00E5A0", html)
+
+    def test_new_modules_present(self):
+        html = render_html(self.summary, self.records, self.statuses)
+        for needle in ("补充指标 · 原统计口径", "单模型总量统计", "0—24 时分布 · 按模型",
+                       "单次请求大小分布", "日活分布", "工作空间活跃分布",
+                       "周期跟随全局时间窗口", "metricSeg"):
+            self.assertIn(needle, html)
 
     def test_fully_offline_and_no_placeholders(self):
         html = render_html(self.summary, self.records, self.statuses)

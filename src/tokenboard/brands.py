@@ -6,10 +6,9 @@
 * **绿色系只出现在 UI 框架**：背景、卡片、边框、文字、主按钮、热力色阶。
 * **品牌色只出现在数据系列**：图表柱/线、图例点、模型徽标。
 * 品牌色**必须同时带文字标签**，不能只靠颜色区分（WCAG 1.4.1）。
-* OpenAI 的品牌绿与主题主色接近，因此所有数据系列额外加 1px 深色描边。
-
-主题与品牌色是两层正交的令牌，互不覆盖；这样"统一绿色系"和
-"按模型匹配品牌色"两个要求不会互相打架。
+* 主题与品牌色是两层正交的令牌，互不覆盖；浅色主题的主强调色是
+  荧光绿 ``#00E5A0``，深色主题（暗夜玻璃版）的主强调色是荧光黄绿
+  ``#D4FF2B``，通过 CSS 变量在运行时切换。
 """
 from __future__ import annotations
 
@@ -17,49 +16,55 @@ import hashlib
 from typing import Iterable
 
 # ---------------------------------------------------------------- 主题令牌
+# 浅色版 = 设计稿「荧光绿微发光 · 白底」定稿；深色版 = 「暗夜玻璃」定稿。
 
 GREEN_DARK: dict[str, str] = {
-    "bg": "#0E1A16",
-    "surface": "#14241F",
-    "surface_2": "#1B302A",
-    "border": "#24443B",
-    "border_strong": "#33604F",
-    "text_1": "#EAF4EF",
-    "text_2": "#9DBCAF",
-    "text_3": "#6F9184",
-    "brand": "#1F6F63",
-    "brand_bright": "#3E8E7E",
-    "brand_soft": "#7FB3A7",
-    "on_brand": "#FFFFFF",
-    "success": "#5FC2A0",
-    "warning": "#D4A574",
+    "bg": "#0A0B0C",
+    "surface": "#12181B",
+    "surface_2": "#1D2629",
+    "border": "#FFFFFF1F",        # 白 12% 细描边（玻璃质感）
+    "border_strong": "#FFFFFF38",  # 白 22%
+    "text_1": "#EAF4EE",
+    "text_2": "#AECBBE",
+    "text_3": "#82A997",
+    "brand": "#D4FF2B",           # 荧光黄绿：仅选中态 / 关键数值 / 状态点
+    "brand_bright": "#D4FF2B",
+    "brand_soft": "#D4FF2B1F",    # 选中胶囊底色（12% 黄绿）
+    "on_brand": "#101404",
+    "success": "#D4FF2B",
+    "warning": "#E2C07A",
     "danger": "#D08068",
 }
 
 GREEN_LIGHT: dict[str, str] = {
-    "bg": "#F5F7F6",
+    "bg": "#FFFFFF",
     "surface": "#FFFFFF",
-    "surface_2": "#EDF1EF",
-    "border": "#DFE5E2",
-    "border_strong": "#C7D0CB",
-    "text_1": "#16211E",
-    "text_2": "#54615C",
-    "text_3": "#6E7B75",
-    "brand": "#1F6F63",
-    "brand_bright": "#3E8E7E",
-    "brand_soft": "#7FB3A7",
-    "on_brand": "#FFFFFF",
-    "success": "#2E8B68",
-    "warning": "#B87A28",
+    "surface_2": "#EEF6F1",
+    "border": "#CBE9D9",
+    "border_strong": "#8CE3BE",
+    "text_1": "#0C3B2C",
+    "text_2": "#3E6B58",
+    "text_3": "#4E7A68",
+    "brand": "#00E5A0",           # 荧光绿：填充 / 徽标 / 选中态（白底上不做正文色）
+    "brand_bright": "#075C42",    # 深绿：承担强调文字（白底对比度达标）
+    "brand_soft": "#DDF8EB",
+    "on_brand": "#063B2B",
+    "success": "#075C42",
+    "warning": "#8A6D12",
     "danger": "#B84B4B",
 }
 
 THEMES = {"dark": GREEN_DARK, "light": GREEN_LIGHT}
 
-# 热力图 5 级（低 → 高），始终走绿色系
-HEAT_RAMP: tuple[str, ...] = (
-    "#1B302A", "#265C4E", "#2E7C67", "#3E9E81", "#5FC2A0",
+# 热力图 7 级（低 → 高），始终走绿色系；通过 --h0..--h6 注入 CSS，随主题切换。
+HEAT_LIGHT: tuple[str, ...] = (
+    "#F1F8F4", "#D8F1E4", "#B5E6CF", "#8CD9B8", "#5FC79C", "#2FAE7E", "#0B7A57",
 )
+HEAT_DARK: tuple[str, ...] = (
+    "#1B2422", "#1E3A30", "#22574A", "#27775F", "#2F9C74", "#43C08C", "#6BE8A8",
+)
+HEATMAPS = {"light": HEAT_LIGHT, "dark": HEAT_DARK}
+HEAT_RAMP = HEAT_LIGHT  # 向后兼容的默认引用
 
 # ---------------------------------------------------------------- 品牌色
 
@@ -75,8 +80,8 @@ BRAND_COLORS: dict[str, str] = {
     "o3": "#10A37F",
     "o4": "#10A37F",
     "codex": "#10A37F",
-    "hunyuan": "#00A3B5",    # 腾讯混元青
-    "hy": "#00A3B5",         # 用户日志里的 hy4-free / hy3
+    "hunyuan": "#00E5A0",    # 腾讯混元 → 荧光绿（设计稿定稿；hy3 靠明度阶梯区分）
+    "hy": "#00E5A0",         # 用户日志里的 hy4-free / hy3
     "glm": "#3B6FE0",        # 智谱
     "qwen": "#7B5CFA",       # 通义千问
     "gemini": "#4285F4",     # Google
@@ -98,6 +103,10 @@ BRAND_NAMES: dict[str, str] = {
 
 # 未知模型不引入新色相，用绿色系的明度阶梯稳定分配
 UNKNOWN_RAMP: tuple[str, ...] = ("#5FC2A0", "#9BD9C0", "#2E7C67", "#B8E6D5", "#7FB3A7")
+
+# 同厂商同色撞色时的变暗阶梯（第 1 个同色模型、第 2 个、第 3 个…）。
+# 白底看板上「变暗」比「提亮」更可读：hy4-free=#00E5A0、hy3≈#007250。
+COLLIDE_SHADES: tuple[float, ...] = (0.0, 0.50, 0.68, 0.78, 0.85)
 
 
 def brand_of(model: str) -> tuple[str, str]:
@@ -128,13 +137,11 @@ def series_palette(models: Iterable[str]) -> dict[str, str]:
     return {m: color_of(m) for m in models}
 
 
-def _lighten(hex_color: str, amount: float) -> str:
-    """把颜色向白色推移，用于同厂商多模型的明度区分。"""
+def _darken(hex_color: str, amount: float) -> str:
+    """按比例压暗颜色，用于同厂商多模型的明度阶梯区分。"""
     raw = hex_color.lstrip("#")
     channels = [int(raw[i:i + 2], 16) for i in (0, 2, 4)]
-    return "#" + "".join(
-        f"{min(255, round(c + (255 - c) * amount)):02X}" for c in channels
-    )
+    return "#" + "".join(f"{max(0, round(c * (1 - amount))):02X}" for c in channels)
 
 
 def palette_for(models: Iterable[str]) -> dict[str, str]:
@@ -142,7 +149,7 @@ def palette_for(models: Iterable[str]) -> dict[str, str]:
 
     同一厂商的多个模型拿到的品牌色相同，堆叠图里会撞色（本机日志里
     ``hy4-free`` / ``hy3`` 都是腾讯混元）。这里对同色的第 2、3… 个模型
-    按明度阶梯提亮，既保留厂商色相，又让每个模型可区分。
+    按阶梯压暗，既保留厂商色相，又让每个模型可区分。
     """
     result: dict[str, str] = {}
     used: dict[str, int] = {}
@@ -150,10 +157,11 @@ def palette_for(models: Iterable[str]) -> dict[str, str]:
         base = color_of(model)
         index = used.get(base, 0)
         used[base] = index + 1
-        result[model] = _lighten(base, 0.18 * index) if index else base
+        shade = COLLIDE_SHADES[min(index, len(COLLIDE_SHADES) - 1)]
+        result[model] = _darken(base, shade) if shade else base
     return result
 
 
-def theme(name: str = "dark") -> dict[str, str]:
-    """取主题令牌；未知名称回退深色，避免 KeyError 打断渲染。"""
-    return THEMES.get(name, GREEN_DARK)
+def theme(name: str = "light") -> dict[str, str]:
+    """取主题令牌；未知名称回退浅色，避免 KeyError 打断渲染。"""
+    return THEMES.get(name, GREEN_LIGHT)
