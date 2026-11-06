@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# Windows runner 的管道默认 ANSI 代码页，中文输出会 UnicodeEncodeError；
+# 全局强制 Python UTF-8 模式（stdout / open() / 子进程一并对齐）。
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   test:
     name: py${{ matrix.python-version }} / ${{ matrix.os }}

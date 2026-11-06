@@ -31,6 +31,7 @@ def main() -> int:
     proc = subprocess.run(
         [sys.executable, "-m", "tokenboard", "serve-mcp"],
         input=payload, capture_output=True, text=True, env=ENV, timeout=30,
+        encoding="utf-8",  # Windows 管道默认 ANSI 代码页，中文响应会炸
     )
     lines = [json.loads(x) for x in proc.stdout.strip().splitlines() if x.strip()]
     if len(lines) != 3:

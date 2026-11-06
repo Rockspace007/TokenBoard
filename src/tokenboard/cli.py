@@ -236,7 +236,24 @@ COMMANDS = {
 }
 
 
+def _force_utf8_streams() -> None:
+    """把 stdout / stderr 重配置为 UTF-8。
+
+    Windows 的管道 / 重定向输出默认用 ANSI 代码页（如 cp1252），
+    表格与提示里的中文、`¥` 会直接 UnicodeEncodeError。
+    在入口处统一重配置：不支持编码的字符降级替换，永不崩。
+    StringIO（测试环境）没有 reconfigure，hasattr 挡掉即可。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _force_utf8_streams()
     raw = list(sys.argv[1:] if argv is None else argv)
     # 省略子命令时默认走 scan，降低上手成本；
     # 但顶层 --version / --help 必须留给 parser 自己处理，不能被塞进 scan。
