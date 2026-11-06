@@ -305,7 +305,8 @@ class TestAdapters(unittest.TestCase):
 
     def test_unverified_not_auto_discovered(self):
         autos = [a.name for a in all_adapters() if a.auto_discover]
-        self.assertEqual(autos, ["workbuddy"], "只有已验证平台参与无参数自动扫描")
+        # 已验证平台自动扫描；请保持与各适配器的 verified 标记一致
+        self.assertEqual(autos, ["workbuddy", "opencode"], "只有已验证平台参与无参数自动扫描")
 
     def test_scan_with_explicit_path(self):
         result = scan(paths=[FIX / "workbuddy.jsonl"])

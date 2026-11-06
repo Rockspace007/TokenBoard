@@ -8,7 +8,7 @@
 | `claude_code` | `claudecode` / `claude-code` | `~/.claude/projects` | 未安装 | ❌ | 仅公开字段 |
 | `codex` | — | `~/.codex/sessions`, `~/.codex/history` | 未安装 | ❌ | 仅公开字段 |
 | `trae` | `treacode` / `traecode` | `~/.trae-cn` 等候选 | 41 个 jsonl，但**是会话记忆** | ❌ | 无 usage 字段 |
-| `opencode` | `open-code` | `~/.config/opencode` | 1 个配置文件 | ❌ | 无会话日志 |
+| `opencode` | `open-code` | `~/.local/share/opencode/opencode.db`（V2 SQLite）＋ 旧版 json/jsonl | 已有会话库 | ✅ | **已用真实日志验证** |
 | `generic` | — | 无（需 `--path`） | 按需 | ❌ | 通用探测 |
 
 > **关于 Trae**：本机 `~/.trae-cn/memory/projects/**/session_memory_*.jsonl` 的内容是
@@ -60,7 +60,7 @@ class MyPlatformAdapter(BaseAdapter):
 ```
 
 只有平台特有结构才需要覆盖 `parse_line` / `make_context` / `iter_records`。
-参考 `codex.py`（token_count 增量事件）与 `opencode.py`（整文件 JSON）。
+参考 `codex.py`（token_count 增量事件）与 `opencode.py`（SQLite 会话库，见下）。
 
 **Step 4 · 注册并验证**
 
@@ -98,19 +98,38 @@ providerData.rawUsage → providerData.usage → message.usage → response.usag
 **丢弃而不是猜测**：拿不到 usage 或时间戳的行直接跳过。因此统计值可能偏低，
 但绝不会凭空造数——这是成本类工具最重要的诚实性。
 
-## 5. 常见坑
+## 5. OpenCode（SQLite 会话库）特例
+
+OpenCode V2 不再写 jsonl，而是把会话落进单个 SQLite 库
+`~/.local/share/opencode/opencode.db`（WAL 模式）。该适配器（`adapters/opencode.py`）
+的开发要点：
+
+| 要点 | 说明 |
+|---|---|
+| 请求级来源 | `session_message` 表 `type='assistant'` 行的 `data.tokens`，一行 = 一次模型请求 |
+| 字段形态 | `{"input":..,"output":..,"reasoning":..,"cache":{"read":..,"write":..}}`；时间在 `data.time.created`（毫秒） |
+| 口径换算 | `input` **不含**缓存（实测 cache.read > input）→ `UsageRecord.input_tokens = input + read + write`；`reasoning` 与 `output` **不相交** → `output_tokens = output + reasoning` |
+| 会话归属 | `session_v2.parent_id` 非空是 task 子代理会话，归属父会话；workspace 取 `session_v2.directory` 的目录名 |
+| 只读安全 | `mode=ro` 直连；失败时把 db + `-wal` + `-shm` 拷到临时目录重开副本，**不写原库** |
+| 去重 | `dedup_key = "opencode:<message_id>"`，天然防重复计数 |
+| 不信会话汇总 | `session_v2.tokens_*` 是只增不减的累计快照（重试不回减），会略大于消息明细之和 |
+
+仅 `opencode.db` 这个文件名参与发现；其余 json/jsonl 按旧版解析逻辑保留。
+
+## 6. 常见坑
 
 | 坑 | 说明 |
 |---|---|
 | 累计值当增量 | Codex 的 `total_token_usage` 是累计，逐行相加会成倍虚高；只取 `last_token_usage` |
 | 子代理算成独立会话 | WorkBuddy 的 `subagents/agent-*.jsonl` 必须归属父会话，否则会话数虚高 |
 | 缓存命中 > 输入 | 不同平台字段口径不同，必须 clamp 到 input 内，否则算出负成本 |
+| reasoning 当输出子集 | OpenCode 的 `reasoning` 与 `output` 不相交，`output_tokens = output + reasoning`，否则漏计思考 token |
 | 整文件 JSON 用逐行解析 | OpenCode 之类会落单文件 JSON 数组，需走 `iter_json_document` |
 | 毫秒时间戳 | `> 1e12` 要除以 1000；`< 1e9` 视为非时间戳直接丢弃 |
 | 路径 slug 当工作空间名 | WorkBuddy 目录名是转义路径，需截 `-WorkBuddy-` 之后的部分 |
 | 配置目录混入 | 目录里带 `*.jsonl` 不等于有用量日志，先 `probe` 再决定要不要加进 `root_globs` |
 
-## 6. 隐私边界
+## 7. 隐私边界
 
 适配器只读取 usage、时间戳、模型名、会话 ID 与工作空间目录名，
 **不读取、不输出消息正文**。生成的 HTML 不含会话标题与提示词内容。
