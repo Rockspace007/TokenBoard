@@ -52,7 +52,7 @@ macOS 还可以在 Finder 里**双击 `see.command`**（参数可直接透传；
 ### 方式一 · pip 安装（CLI / MCP）
 
 ```bash
-pip install git+https://github.com/your-name/tokenboard.git
+pip install git+https://github.com/Rockspace007/TokenBoard.git
 
 tokenboard platforms                   # 看本机有哪些平台日志
 tokenboard scan                        # 生成 ./tokenboard.html（近 30 天）
@@ -64,7 +64,7 @@ tokenboard probe --path ~/some/logs    # 新平台接入前先看字段命中率
 或克隆源码运行（不装包）：
 
 ```bash
-git clone https://github.com/your-name/tokenboard.git && cd tokenboard
+git clone https://github.com/Rockspace007/TokenBoard.git && cd TokenBoard
 PYTHONPATH=src python -m tokenboard scan
 ```
 
@@ -77,7 +77,7 @@ mkdir -p ~/.workbuddy/skills
 tar -xzf tokenboard-skill.tgz -C ~/.workbuddy/skills
 
 # 方式 B：直接 clone（整个仓库即合法 Skill）
-git clone https://github.com/your-name/tokenboard.git ~/.workbuddy/skills/tokenboard
+git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tokenboard
 ```
 
 重启 WorkBuddy 会话后，说「看看我的 token 用量」「生成本周消耗看板」即可触发。
@@ -197,6 +197,16 @@ MCP 握手与 Skill 打包；打 `v*` tag 会自动把 Skill 包挂到 GitHub Re
 - [ ] 用真实日志验证 Claude Code / Codex（欢迎补全样例）
 - [ ] 流式聚合，支撑十万级以上请求
 - [ ] 桌宠 P0（Web Widget）→ P1（Tauri 独立桌宠），见可行性报告
+
+## 致谢
+
+交互与功能设计部分受 [fuyi-git/token-dashboard](https://github.com/fuyi-git/token-dashboard) 启发
+（周期切换、工作空间下钻、模型聚焦、日×时热力等交互思路）。
+
+TokenBoard 在其思路之上**独立重写**为多平台、多入口、可测试的工程化实现：
+代码架构、平台适配器、计价口径、测试与文档均为本项目原创，未复制其源代码。
+参考项目目前未附带开源许可证（all rights reserved），本项目的 MIT 授权范围仅覆盖
+TokenBoard 自有代码，不构成对参考项目的再分发许可。
 
 ## License
 
