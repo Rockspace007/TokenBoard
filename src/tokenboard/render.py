@@ -21,7 +21,7 @@ import html
 import json
 import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable, Sequence
 
 from .aggregate import Summary
@@ -282,6 +282,7 @@ var win=(D.win!=null?D.win:30),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[
 if(D.custom)win=0;
 var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
 var platFilter=-1;
+var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -624,35 +625,83 @@ function renderDist(A){
 
 /* ---------------- 日活热力 ---------------- */
 function renderHeat(A){
-  var days=Object.keys(A.hm).sort().slice(-3).reverse();
-  if(!days.length){$('#dayhourCard').innerHTML='<div class="cap">暂无数据</div>';return;}
+  var dayKeys=Object.keys(A.daily).sort();
+  var views=[['day','日'],['week','周'],['month','月']];
+  var seg='<div class="seg">'+views.map(function(v){
+    return '<button type="button" class="'+(heatView===v[0]?'on':'')
+      +'" data-hv="'+v[0]+'">'+v[1]+'</button>';}).join('')+'</div>';
+  if(!dayKeys.length){$('#dayhourCard').innerHTML=
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
+    +seg+'</div><div class="cap">该时间范围内无数据</div>';return;}
+  /* 锚定最后一个有数据日，向前取自然日序列（含空窗日，诚实显示） */
+  var anchor=new Date(dayKeys[dayKeys.length-1]+'T00:00:00');
+  function daySeq(n){var out=[];
+    for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
+    return out;}
   var bandTotal=A.bands.reduce(function(a,b){return a+b;},0)||1;
   var names=['凌晨 0—6','上午 6—12','下午 12—18','晚间 18—24'];
   var chips='<div class="chips">'+A.bands.map(function(v,i){
     return '<div class="chip2"><span>'+names[i]+'</span><b>'
       +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
-  var peak=1;
-  days.forEach(function(dk){A.hm[dk].forEach(function(v){if(v>peak)peak=v;});});
-  var cell=40,gap=6,width=24*(cell+gap),rowH=16,rowGap=8;
-  var svg=['<svg viewBox="0 0 '+width+' '+(days.length*(rowH+rowGap)+24)
-    +'" role="img" aria-label="日 × 小时热力图">'];
-  for(var h=0;h<24;h++)svg.push('<text x="'+(h*(cell+gap)+12)+'" y="12" fill="var(--t3)" '
-    +'font-size="9" text-anchor="middle">'+h+'</text>');
-  days.forEach(function(dk,r){var y=22+r*(rowH+rowGap);
-    for(var hh=0;hh<24;hh++){var v=A.hm[dk][hh];
-      var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
-      var dayTot=A.daily[dk]?A.daily[dk].tt:0;
-      svg.push('<rect x="'+(hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
-        +'" rx="3" fill="'+HEAT[lv]+'" data-tip="'+esc(dk+' '+hh+':00–'+(hh+1)
-        +':00\n'+nf(v)+' token（占当日 '+pct(v,dayTot).toFixed(1)+'%）')+'"/>');}});
-  svg.push('</svg>');
-  var labels=days.map(function(dk){return '<div style="height:'+(rowH+rowGap)
-    +'px;display:flex;align-items:center;font-family:var(--mono);font-size:10px;color:var(--t2)">'
-    +esc(dk.slice(5).replace('-','—'))+'</div>';}).join('');
+  var note=heatView==='day'?'每行一个自然日 · 每格一小时 · 空窗日留白 · 悬浮看数值'
+    :heatView==='week'?'最近 7 个自然日 · 每格一天的消耗 · 悬浮看数值'
+    :'最近 30 个自然日 · 每格一天的消耗 · 悬浮看数值';
+  var head='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
+    +seg+'<span class="hdnote" style="margin-left:auto">'+esc(note)+'</span></div>';
   var sw=HEAT.map(function(c){return '<i style="background:'+c+'"></i>';}).join('');
-  $('#dayhourCard').innerHTML=chips+'<div class="hmlegend">低 '+sw+' 高</div>'
-    +'<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
-    +'<div style="padding-top:22px">'+labels+'</div><div>'+svg.join('')+'</div></div>';
+  var legend='<div class="hmlegend">低 '+sw+' 高</div>';
+  var body='';
+  if(heatView==='day'){
+    var days=daySeq(7),peak=1;
+    days.forEach(function(dk){(A.hm[dk]||[]).forEach(function(v){if(v>peak)peak=v;});});
+    var cell=40,gap=6,width=24*(cell+gap),rowH=16,rowGap=8;
+    var svg=['<svg viewBox="0 0 '+width+' '+(days.length*(rowH+rowGap)+24)
+      +'" role="img" aria-label="日 × 小时热力图">'];
+    for(var h=0;h<24;h++)svg.push('<text x="'+(h*(cell+gap)+12)+'" y="12" fill="var(--t3)" '
+      +'font-size="9" text-anchor="middle">'+h+'</text>');
+    days.forEach(function(dk,r){var y=22+r*(rowH+rowGap);
+      var dayTot=A.daily[dk]?A.daily[dk].tt:0;
+      for(var hh=0;hh<24;hh++){var v=(A.hm[dk]||new Array(24).fill(0))[hh];
+        var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
+        svg.push('<rect x="'+(hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
+          +'" rx="3" fill="'+HEAT[lv]+'" data-tip="'+esc(dk+' '+hh+':00–'+(hh+1)
+          +':00\n'+nf(v)+' token（占当日 '+pct(v,dayTot).toFixed(1)+'%）')+'"/>');}});
+    svg.push('</svg>');
+    var labels=days.map(function(dk){return '<div style="height:'+(rowH+rowGap)
+      +'px;display:flex;align-items:center;font-family:var(--mono);font-size:10px;color:'
+      +(A.daily[dk]?'var(--t2)':'var(--t3)')+'">'
+      +esc(dk.slice(5).replace('-','—'))+'</div>';}).join('');
+    body='<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
+      +'<div style="padding-top:22px">'+labels+'</div><div>'+svg.join('')+'</div></div>';
+  }else{
+    var n=heatView==='week'?7:30;
+    var seq=daySeq(n);
+    var total=seq.reduce(function(a,dk){return a+(A.daily[dk]?A.daily[dk].tt:0);},0)||1;
+    var peak=1;seq.forEach(function(dk){var v=A.daily[dk]?A.daily[dk].tt:0;if(v>peak)peak=v;});
+    var cw=heatView==='week'?132:34,g=heatView==='week'?12:6;
+    var width=n*(cw+g)-g,H=heatView==='week'?78:56;
+    var svg=['<svg viewBox="0 0 '+width+' '+H+'" role="img" aria-label="'
+      +(heatView==='week'?'近 7 天每日消耗':'近 30 天每日消耗')+'">'];
+    seq.forEach(function(dk,i){
+      var v=A.daily[dk]?A.daily[dk].tt:0;
+      var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
+      var x=i*(cw+g),ch=heatView==='week'?44:30,y=heatView==='week'?24:8;
+      svg.push('<rect x="'+x+'" y="'+y+'" width="'+cw+'" height="'+ch+'" rx="6" fill="'
+        +HEAT[lv]+'" data-tip="'+esc(dk+'\n'+nf(v)+' token（占'+n+' 天 '
+        +pct(v,total).toFixed(1)+'%）')+'"/>');
+      if(heatView==='week'){
+        svg.push('<text x="'+(x+cw/2)+'" y="14" fill="var(--t3)" font-size="9.5" '
+          +'text-anchor="middle">'+esc(dk.slice(5))+'</text>');
+        if(v>0)svg.push('<text x="'+(x+cw/2)+'" y="'+(y+ch/2+4)+'" fill="var(--t1)" '
+          +'font-size="10.5" font-weight="700" text-anchor="middle">'+fmt(v)+'</text>');
+      }else if(i%5===0){
+        svg.push('<text x="'+(x+cw/2)+'" y="'+(H-2)+'" fill="var(--t3)" font-size="8.5" '
+          +'text-anchor="middle">'+esc(dk.slice(5))+'</text>');
+      }});
+    svg.push('</svg>');
+    body=svg.join('');
+  }
+  $('#dayhourCard').innerHTML=head+chips+legend+body;
 }
 
 /* ---------------- 工作空间 / 下钻 ---------------- */
@@ -844,6 +893,8 @@ document.addEventListener('click',function(ev){
       b.classList.toggle('on',b===n);});renderAll();return;}
   if((n=t.closest('[data-dm]'))){var mi=+n.dataset.dm;
     selModel=(selModel===mi?null:mi);renderAll();return;}
+  if((n=t.closest('[data-hv]'))){heatView=n.dataset.hv;
+    if(LASTA)renderHeat(LASTA);return;}
 });
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
@@ -1296,8 +1347,11 @@ def _dayhour_card(summary: Summary) -> str:
         f'<div class="chip2"><span>{e(n)}</span><b>{v / band_total * 100:.1f}%</b></div>'
         for n, v in zip(band_names, summary.bands)
     )
-    days = sorted(summary.hour_matrix)[-3:][::-1]
-    peak = max((v for d in days for v in summary.hour_matrix[d]), default=0) or 1
+    data_days = sorted(summary.hour_matrix)
+    anchor = datetime.strptime(data_days[-1], "%Y-%m-%d")
+    # 静态首屏与 JS 日视图同构：最近 7 个自然日（含空窗日，诚实显示），旧→新
+    days = [(anchor - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+    peak = max((v for d in days for v in summary.hour_matrix.get(d, (0,) * 24)), default=0) or 1
     cell, gap = 40, 6
     width = 24 * (cell + gap)
     row_h, row_gap = 16, 8
@@ -1309,19 +1363,23 @@ def _dayhour_card(summary: Summary) -> str:
                      f'font-size="9" text-anchor="middle">{hour}</text>')
     for r, day in enumerate(days):
         y = 22 + r * (row_h + row_gap)
+        row = summary.hour_matrix.get(day, (0,) * 24)
+        dim = "var(--t3)" if day not in summary.hour_matrix else "var(--t2)"
         for hour in range(24):
-            v = summary.hour_matrix[day][hour]
+            v = row[hour]
             level = 0 if v <= 0 else min(6, 1 + int(v / peak * 5.999))
             parts.append(
                 f'<rect x="{hour * (cell + gap)}" y="{y}" width="{cell}" height="{row_h}" rx="3" '
                 f'fill="var(--h{level})"><title>{e(day)} {hour}:00 · {fmt(v)}</title></rect>'
             )
     parts.append("</svg>")
-    row_labels = "".join(
-        f'<div style="height:{row_h + row_gap}px;display:flex;align-items:center;'
-        f'font-family:var(--mono);font-size:10px;color:var(--t2)">{e(day[5:7])}—{e(day[8:10])}</div>'
-        for day in days
-    )
+    row_labels = ""
+    for day in days:
+        dim = "var(--t3)" if day not in summary.hour_matrix else "var(--t2)"
+        row_labels += (
+            f'<div style="height:{row_h + row_gap}px;display:flex;align-items:center;'
+            f'font-family:var(--mono);font-size:10px;color:{dim}">{e(day[5:7])}—{e(day[8:10])}</div>'
+        )
     swatches = "".join(f'<i style="background:var(--h{i})"></i>' for i in range(7))
     legend = f'<div class="hmlegend">低 {swatches} 高</div>'
     body = ('<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
