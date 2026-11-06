@@ -41,3 +41,10 @@ usage-*.csv
 
 # WorkBuddy 项目数据：不是临时缓存，不删也不提交
 .workbuddy/
+
+# 桌面宠物可行性文档：保留在本地磁盘，但绝不入库
+docs/DESKTOP_PET_FEASIBILITY.md
+
+# Trae IDE 私有目录与本地截图缓存
+.trae/
+.screenshots/
