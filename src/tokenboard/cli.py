@@ -145,6 +145,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
             summary, result.records, result.statuses,
             theme_name=args.theme, title=args.title, window_note=note,
             window_label=label,
+            window_days=window_days(args.since),
+            custom_range=(args.since, args.until)
+            if (args.until or (args.since and window_days(args.since) is None)) else None,
+            prices=prices,
         )
 
     out = args.out or ("tokenboard.html" if args.format == "html" else None)

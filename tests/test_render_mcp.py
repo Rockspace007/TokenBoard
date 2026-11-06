@@ -61,8 +61,15 @@ class TestRender(unittest.TestCase):
         html = render_html(self.summary, self.records, self.statuses)
         for needle in ("补充指标 · 原统计口径", "单模型总量统计", "0—24 时分布 · 按模型",
                        "单次请求大小分布", "日活分布", "工作空间活跃分布",
-                       "周期跟随全局时间窗口", "metricSeg"):
+                       "周期跟随全局时间窗口", "metricSeg", "window.TB_DATA=",
+                       "data-tip", "id=\"wsMult\""):
             self.assertIn(needle, html)
+
+    def test_payload_escapes_closing_script(self):
+        r = UsageRecord(ts=TS, platform="p", workspace="</script><b>x</b>",
+                        session_id="s", model="m", input_tokens=1, output_tokens=1)
+        html = render_html(summarize([r]), [r])
+        self.assertNotIn("</script><b>", html)
 
     def test_fully_offline_and_no_placeholders(self):
         html = render_html(self.summary, self.records, self.statuses)

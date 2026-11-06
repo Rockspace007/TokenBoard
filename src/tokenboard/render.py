@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""单文件离线 HTML 渲染。
+"""单文件离线 HTML 渲染（v0.3：静态首屏 + 页内交互引擎）。
 
 设计约束（与 docs/DESIGN_TOKENS.md、Ardot 定稿设计稿三方一致）：
   * UI 框架只用 :mod:`tokenboard.brands` 的绿色系令牌；
   * 品牌色只出现在数据系列，并且永远配文字标签；
   * 零外部请求、零第三方库，生成的 HTML 断网也能看；
   * 浅色为默认主题（白底荧光绿），深色为「暗夜玻璃」变体，运行时切换。
+
+交互（对齐参考实现 fuyi-git/token-dashboard）：
+  * 周期胶囊 / 自定义日期范围 **真切换**：请求级明细以分钟粒度嵌入页面，
+    JS 端按同一口径重新聚合，重绘全部指标与图表；
+  * 工作空间 → 会话 → 请求 三级下钻（散点 / 明细表）+ 面包屑返回；
+  * 模型点选聚焦（其余模型在图表中变暗）、跟随式 tooltip、3X 切片。
 
 模板用 ``str.replace`` 注入而不是 f-string，避免 CSS/JS 里大量花括号被误解释。
 """
@@ -21,6 +27,7 @@ from typing import Any, Iterable, Sequence
 from .aggregate import Summary
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
 from .models import SourceStatus, UsageRecord
+from .pricing import price_of
 
 _SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif'
 _MONO = 'ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace'
@@ -30,8 +37,8 @@ _CSS = r"""
 :root{--sans:__SANS__;--mono:__MONO__}
 body{font-family:var(--sans);background:var(--bg);color:var(--t1);padding:24px 26px 56px;
 max-width:1560px;margin:0 auto;-webkit-font-smoothing:antialiased}
-body[data-theme=light]{__LIGHT__ __HEAT_L__}
-body[data-theme=dark]{__DARK__ __HEAT_D__;
+body[data-theme=light]{__LIGHT_CSS__ __HEAT_L_CSS__}
+body[data-theme=dark]{__DARK_CSS__ __HEAT_D_CSS__;
 background:radial-gradient(1100px 520px at 50% -8%,#1A201C 0%,var(--bg) 62%) fixed}
 /* ---- 顶栏 ---- */
 .crumbrow{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--t3)}
@@ -43,9 +50,13 @@ h1{font-size:28px;font-weight:700;letter-spacing:.2px}
 padding:6px 12px;border-radius:999px;cursor:pointer;font-family:var(--sans)}
 .chip:hover{border-color:var(--bds);color:var(--t1)}
 .twin{display:flex;border:1px solid var(--bd);border-radius:10px;background:var(--surface);padding:3px;gap:2px}
-.twin span{font-size:11px;color:var(--t2);padding:5px 13px;border-radius:7px;white-space:nowrap}
-.twin span.on{background:var(--brandsoft);color:var(--brandb);font-weight:600;
+.twin button{border:none;background:transparent;color:var(--t2);font-size:11px;padding:5px 13px;
+border-radius:7px;white-space:nowrap;cursor:pointer;font-family:var(--sans)}
+.twin button.on{background:var(--brandsoft);color:var(--brandb);font-weight:600;
 box-shadow:inset 0 0 0 1px var(--brand)}
+.drange{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--t3)}
+.drange input{border:1px solid var(--bd);background:var(--surface);color:var(--t1);border-radius:7px;
+padding:5px 8px;font-size:10.5px;font-family:var(--mono);color-scheme:light dark}
 /* ---- 结论条 ---- */
 .hero{position:relative;background:var(--surface);border:1px solid var(--bds);border-radius:20px;
 padding:20px 26px 18px;margin-bottom:16px;overflow:hidden}
@@ -54,7 +65,7 @@ border-radius:2px;background:var(--brand)}
 .hero .lab{font-size:10px;letter-spacing:.18em;color:var(--t2)}
 .hero .main{font-size:28px;font-weight:700;margin-top:8px;line-height:1.35;font-variant-numeric:tabular-nums}
 .hero .sub2{font-size:11.5px;color:var(--t2);margin-top:8px}
-.hero .warn{font-size:10.5px;color:var(--warn);margin-top:12px}
+.hero .warn{font-size:10.5px;color:var(--warn);margin-top:12px;min-height:0}
 .hero .side{position:absolute;right:26px;top:30px;text-align:right}
 .hero .side .k{font-size:10px;color:var(--t2)}
 .hero .side .v{font-family:var(--mono);font-size:18px;font-weight:700;margin-top:5px}
@@ -85,10 +96,13 @@ padding:18px 22px;margin-bottom:16px}
 .mrow{display:grid;grid-template-columns:200px 1fr 300px;gap:12px;align-items:center;
 padding:9px 0;font-size:11.5px}
 .mrow .nm{font-family:var(--mono);font-weight:600;color:var(--t1);overflow:hidden;
-text-overflow:ellipsis;white-space:nowrap}
-.mrow .nm.sans{font-family:var(--sans);font-weight:500}
+text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.mrow .nm.sans{font-family:var(--sans);font-weight:500;cursor:default}
+.mrow .nm .dot{margin-right:6px}
+.mrow.dim .track i{opacity:.28}
+.mrow.dim .nm,.mrow.dim .num{opacity:.45}
 .mrow .track{height:12px;background:var(--surface2);border-radius:8px;overflow:hidden}
-.mrow .track i{display:block;height:100%;border-radius:8px}
+.mrow .track i{display:block;height:100%;border-radius:8px;transition:opacity .15s}
 .mrow .num{font-family:var(--mono);font-size:10.5px;color:var(--t2);text-align:right;
 font-variant-numeric:tabular-nums;white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:3px;flex:none;display:inline-block;vertical-align:-1px}
@@ -108,27 +122,33 @@ tr.total td{border-top:1px solid var(--bds);border-bottom:none;color:var(--t1);f
 .pill.no{color:var(--warn);border-color:var(--warn)}
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--brand);display:inline-block;margin-right:6px}
 /* ---- 工作空间卡 ---- */
+.crumb{display:none;align-items:center;gap:8px;margin:2px 0 10px;font-size:11px;color:var(--t2)}
+.crumb .path .sep{margin:0 7px;color:var(--t3)}
+.crumb .cur{color:var(--t1);font-weight:600}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px}
 .toolbar .spacer{flex:1}
 .mini{border:1px solid var(--bd);background:var(--surface);color:var(--t2);font-size:10px;
 padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--sans)}
 .mini.on{background:var(--brandsoft);border-color:var(--brand);color:var(--brandb);font-weight:600}
 .mini:hover{border-color:var(--bds)}
+select.mini{padding:4px 8px;color-scheme:light dark}
 .wssearch{border:1px solid var(--bd);background:var(--surface);color:var(--t1);font-size:10.5px;
 padding:5px 10px;border-radius:7px;width:130px;outline:none;font-family:var(--sans)}
 .wssearch:focus{border-color:var(--bds)}
-.wshead{display:grid;grid-template-columns:200px 120px 150px 1fr 24px;gap:12px;
+.wshead{display:grid;grid-template-columns:minmax(140px,1.3fr) 110px 140px 1fr 18px;gap:12px;
 font-size:10px;color:var(--t3);padding:8px 0;border-bottom:1px solid var(--bd)}
-.wsrow{display:grid;grid-template-columns:200px 120px 150px 1fr 24px;gap:12px;align-items:center;
-padding:9px 0;border-bottom:1px solid var(--bd);font-size:10.5px}
+.wsrow{display:grid;grid-template-columns:minmax(140px,1.3fr) 110px 140px 1fr 18px;gap:12px;
+align-items:center;padding:9px 0;border-bottom:1px solid var(--bd);font-size:10.5px}
 .wsrow:last-child{border-bottom:none}
+.wsrow.click{cursor:pointer}
+.wsrow.click:hover{background:var(--surface2)}
 .wsrow .nm{font-family:var(--mono);color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wsrow .tk{font-family:var(--mono);color:var(--t1);font-variant-numeric:tabular-nums}
 .wsrow .sh{color:var(--brandb);font-family:var(--mono)}
 .wsrow .sh small{color:var(--t3);margin-left:4px}
-.spark{display:flex;align-items:center;height:8px}
-.spark i{height:8px;border-radius:2px;background:var(--brand);opacity:.85;margin-right:2px}
-.spark i.alt{background:var(--brandb)}
+.wsrow .chev{color:var(--t3);text-align:center}
+.wviz{display:flex;gap:2px;height:9px;align-items:stretch}
+.wviz i{flex:1;border-radius:2px}
 /* ---- 指标切换（按 Token / 按金额） ---- */
 .seg{display:inline-flex;border:1px solid var(--bd);border-radius:10px;background:var(--surface);
 padding:3px;gap:2px}
@@ -142,14 +162,16 @@ body[data-metric=cost] .v-token{display:none}
 /* ---- 图表通用 ---- */
 svg{display:block;width:100%;height:auto}
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}
-.legend span{font-size:10.5px;color:var(--t2);display:flex;align-items:center;gap:6px}
+.legend span{font-size:10.5px;color:var(--t2);display:flex;align-items:center;gap:6px;cursor:pointer}
+.legend span.pinned{cursor:default}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
 .distwrap{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
 @media(max-width:980px){.distwrap{grid-template-columns:1fr}}
 .drow{display:grid;grid-template-columns:76px 48px 1fr 1fr;gap:10px;align-items:center;
 padding:10px 0;border-bottom:1px solid var(--bd);font-size:11px}
 .drow:last-child{border-bottom:none}
-.dhead{font-size:10px;color:var(--t3);padding:0 0 2px}
+.dhead{font-size:10px;color:var(--t3)}
+.dhead.drow{padding:0 0 2px}
 .drow .nm{font-family:var(--mono);font-weight:600;color:var(--t1)}
 .drow .val{font-family:var(--mono);font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums}
 .drow .val small{display:block;font-weight:400;font-size:9px;color:var(--t3);margin-top:4px}
@@ -161,6 +183,16 @@ justify-content:space-between;align-items:center;font-size:10.5px;color:var(--t2
 .chip2 b{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--t1)}
 .hmlegend{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--t3);margin-bottom:6px}
 .hmlegend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+/* ---- 会话详情 / 请求明细 ---- */
+.view-h{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;
+margin:4px 0 12px}
+.view-t{font-size:13px;font-weight:650;color:var(--t1);font-family:var(--mono)}
+.view-m{font-size:10.5px;color:var(--t3);margin-top:4px;font-family:var(--mono)}
+.rt-wrap{max-height:360px;overflow:auto;border:1px solid var(--bd);border-radius:10px}
+/* ---- tooltip ---- */
+#tip{position:fixed;z-index:99;background:var(--t1);color:var(--bg);font-size:10.5px;line-height:1.55;
+padding:7px 10px;border-radius:8px;pointer-events:none;opacity:0;transition:opacity .08s;
+max-width:280px;white-space:pre-line;font-family:var(--mono)}
 .foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--bd);font-size:10.5px;
 color:var(--t3);line-height:1.9}
 """
@@ -170,57 +202,625 @@ _TEMPLATE = r"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>__TITLE__</title><style>__CSS__</style></head>
 <body data-theme="__THEME__" data-metric="token">
 <div class="crumbrow"><span>总览&ensp;/&ensp;消耗洞察</span>
-<span>数据截至 __GENERATED__ · 离线可用</span></div>
+<span>数据截至 __GENERATED__ · 离线可用 · 周期 / 图例 / 工作空间均可点击</span></div>
 <div class="titlerow"><div><h1>__TITLE__</h1><div class="sub">__SUBTITLE__</div></div>
 <div class="controls">
-<div class="twin">__PERIODS__</div>
+<div class="twin" id="periodPills">__PERIODS__</div>
+<div class="drange"><input type="date" id="dStart" aria-label="起始日期">至
+<input type="date" id="dEnd" aria-label="结束日期"></div>
 <button class="chip" id="themeBtn">深色</button>
 <button class="chip" onclick="window.print()">导出 PDF</button></div></div>
 __HERO__
-<div class="kpis">__KPIS__</div>
-<div class="sec"><b>01</b><h2>补充指标 · 原统计口径</h2><span>__S1NOTE__</span></div>
-<div class="kpis three">__KPI2__</div>
-<div class="sec"><b>02</b><h2>模型与品牌色</h2><span>同厂商模型用明度阶梯区分，色相保持品牌体系</span></div>
+<div class="kpis" id="kpis">__KPIS__</div>
+<div class="sec"><b>01</b><h2>补充指标 · 原统计口径</h2><span id="s1note">__S1NOTE__</span></div>
+<div class="kpis three" id="kpi2">__KPI2__</div>
+<div class="sec"><b>02</b><h2>模型与品牌色</h2><span>点击模型名或图例可聚焦单个模型</span></div>
 <div class="duo">
-<div class="card"><h3>按模型消耗</h3><div class="cap">__MODELCAP__</div>__MODELS__</div>
-<div class="card"><h3>每日用量趋势</h3><div class="cap">按模型堆叠 · 最新在右 · 单位 Token</div>__DAILY__</div>
+<div class="card"><h3>按模型消耗</h3><div class="cap" id="modelCap">__MODELCAP__</div>
+<div id="modelRows">__MODELS__</div></div>
+<div class="card"><h3>每日用量趋势</h3><div class="cap">按模型堆叠 · 点击图例聚焦 · 单位 Token</div>
+<div id="dailyChart">__DAILY__</div></div>
 </div>
 <div class="sec"><b>03</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
 <div class="card">__SOURCES__</div>
 <div class="sec"><b>04</b><h2>使用分布与时间节律</h2><span>工作空间 / 请求规模 / 日活 / 时段 / 模型构成</span></div>
-__DISTRIBUTION__
+<div class="card"><div id="wsCrumb" class="crumb"></div>
+<h3 id="wsTitle">工作空间活跃分布</h3>
+<div id="wsTools">
+<div class="toolbar">
+<span class="mini" data-m="ses">按会话</span>
+<span class="mini on" data-m="ws">按工作空间</span>
+<input class="wssearch" id="wsSearch" type="search" placeholder="搜索..." aria-label="搜索">
+<span class="spacer"></span>
+<button class="mini on" data-s="tokens" type="button">按 Token</button>
+<button class="mini" data-s="sessions" type="button">按会话数</button>
+<select class="mini" id="wsMult" aria-label="每日切片数">
+<option value="1">1X</option><option value="2">2X</option>
+<option value="3" selected>3X</option><option value="4">4X</option>
+<option value="6">6X</option><option value="8">8X</option></select></div></div>
+<div id="wsPanel">__WORKSPACES__</div></div>
+<div class="card" id="mtCard">__MODEL_TOTALS__</div>
+<div class="card"><h3>0—24 时分布 · 按模型</h3>
+<span class="hdnote">点击图例聚焦单个模型</span><div id="hourChart">__HOURLY__</div></div>
+<div class="card"><h3>单次请求大小分布&ensp;<span class="hdnote" id="distNote"></span></h3>
+<div id="distBody">__REQDIST__</div></div>
+<div class="card"><h3>日活分布&ensp;<span class="hdnote">色深代表当日该小时的消耗强度 · 悬浮看数值</span></h3>
+<div id="dayhourCard">__DAYHOUR__</div></div>
 <div class="foot">__FOOTER__</div>
+<div id="tip"></div>
+<script>window.TB_DATA=__DATA__;</script>
 <script>__SCRIPT__</script></body></html>"""
 
 _SCRIPT = r"""
 (function(){
-  var b=document.body;
-  var btn=document.getElementById('themeBtn');
-  try{var t=localStorage.getItem('tb-theme');if(t==='light'||t==='dark')b.dataset.theme=t;}catch(e){}
-  function label(){btn.textContent=b.dataset.theme==='dark'?'浅色':'深色';}
-  label();
-  btn.onclick=function(){b.dataset.theme=(b.dataset.theme==='dark'?'light':'dark');
-    try{localStorage.setItem('tb-theme',b.dataset.theme);}catch(e){} label();};
-  var seg=document.getElementById('metricSeg');
-  if(seg){seg.addEventListener('click',function(ev){
-    var opt=ev.target.closest('[data-metric-opt]');if(!opt)return;
-    b.dataset.metric=opt.getAttribute('data-metric-opt');
-    [].forEach.call(seg.querySelectorAll('[data-metric-opt]'),function(x){
-      x.classList.toggle('on',x===opt);});
-  });}
-  var list=document.getElementById('wsRows');
-  if(list){
-    function sortRows(by){var rows=[].slice.call(list.children);
-      rows.sort(function(x,y){return (+y.dataset[by])-(+x.dataset[by]);});
-      rows.forEach(function(r){list.appendChild(r);});}
-    var st=document.getElementById('wsSortTok'),ss=document.getElementById('wsSortSes');
-    if(st)st.onclick=function(){st.classList.add('on');if(ss)ss.classList.remove('on');sortRows('tokens');};
-    if(ss)ss.onclick=function(){ss.classList.add('on');if(st)st.classList.remove('on');sortRows('sessions');};
-    var q=document.getElementById('wsSearch');
-    if(q)q.addEventListener('input',function(){var v=q.value.trim().toLowerCase();
-      [].forEach.call(list.children,function(r){
-        r.style.display=(!v||r.getAttribute('data-name').indexOf(v)>=0)?'':'none';});});
+"use strict";
+var D=window.TB_DATA||{};
+var $=function(s){return document.querySelector(s)};
+var HEAT_L=__HEAT_L_JS__,HEAT_D=__HEAT_D_JS__;
+var DARK=document.body.dataset.theme==='dark',HEAT=DARK?HEAT_D:HEAT_L;
+var models=D.models||[],PAL=D.palette||[],VENDOR=D.vendor||[],PRICE=D.prices||[];
+var WS=D.workspaces||[],SESS=D.sessions||[];
+var genMin=D.genMin||0;
+var win=(D.win!=null?D.win:30),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
+if(D.custom)win=0;
+var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
+var LASTA=null;
+
+/* ---------------- 基础工具 ---------------- */
+function fmt(n){n=+n||0;if(n>=1e8)return (n/1e8).toFixed(2)+' 亿';
+  if(n>=1e4)return (n/1e4).toFixed(1)+' 万';return String(Math.round(n));}
+function nf(n){return (+n||0).toLocaleString('en-US');}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fm(d){var p=function(v){return (v<10?'0':'')+v};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+function fd(d){var p=function(v){return (v<10?'0':'')+v};return (d.getMonth()+1)+'-'+p(d.getDate());}
+function ft(d){var p=function(v){return (v<10?'0':'')+v};return p(d.getHours())+':'+p(d.getMinutes());}
+function pct(a,b){return b?a/b*100:0;}
+function priceOf(mi){return PRICE[mi]||[2,8,0.4];}
+function cost(r){var p=priceOf(r[1]),inp=r[3],out=r[4];
+  var cr=Math.max(0,Math.min(r[5]||0,inp)),rem=Math.max(0,inp-cr);
+  var cw=Math.max(0,Math.min(r[6]||0,rem)),plain=Math.max(0,rem-cw);
+  return (cr*p[2]+cw*1.25*p[0]+plain*p[0]+out*p[1])/1e6;}
+function pctile(v,q){if(!v||!v.length)return 0;var a=v.slice().sort(function(x,y){return x-y;});
+  if(a.length===1)return a[0];var k=(a.length-1)*q/100,lo=Math.floor(k),hi=Math.ceil(k);
+  if(lo===hi)return a[lo];return a[lo]+(a[hi]-a[lo])*(k-lo);}
+function niceMax(v){if(!(v>0))return 1;var mag=Math.pow(10,Math.floor(Math.log(v)/Math.LN10));
+  var f=[1,2,2.5,5,10];for(var i=0;i<f.length;i++){if(v<=f[i]*mag)return f[i]*mag;}return 10*mag;}
+function smoothLine(pts){ /* Fritsch-Carlson 单调三次插值，平滑且不过冲 */
+  var n=pts.length;if(n<3)return 'M'+pts.map(function(p){return p[0].toFixed(1)+' '+p[1].toFixed(1);}).join(' L');
+  var dx=[],m=[],t=new Array(n),i;
+  for(i=0;i<n-1;i++)dx.push(pts[i+1][0]-pts[i][0]);
+  for(i=0;i<n-1;i++)m.push((pts[i+1][1]-pts[i][1])/dx[i]);
+  t[0]=m[0];t[n-1]=m[n-2];
+  for(i=1;i<n-1;i++)t[i]=(m[i-1]*m[i]<=0)?0:(m[i-1]+m[i])/2;
+  for(i=0;i<n-1;i++){if(m[i]===0){t[i]=0;t[i+1]=0;continue;}
+    var a=t[i]/m[i],b=t[i+1]/m[i],s=a*a+b*b;
+    if(s>9){var f2=3/Math.sqrt(s);t[i]=f2*a*m[i];t[i+1]=f2*b*m[i];}}
+  var d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  for(i=0;i<n-1;i++){var h=dx[i];
+    d+=' C'+(pts[i][0]+h/3).toFixed(1)+' '+(pts[i][1]+t[i]*h/3).toFixed(1)
+      +' '+(pts[i+1][0]-h/3).toFixed(1)+' '+(pts[i+1][1]-t[i+1]*h/3).toFixed(1)
+      +' '+pts[i+1][0].toFixed(1)+' '+pts[i+1][1].toFixed(1);}
+  return d;}
+function curY(hist,v,hi){if(!(hi>0)||!hist.length)return 0;
+  var pos=Math.min(hist.length-1,Math.max(0,v/hi*hist.length));
+  var lo=Math.floor(pos),hi2=Math.min(hist.length-1,lo+1),f=pos-lo;
+  return hist[lo]*(1-f)+hist[hi2]*f;}
+function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=[];
+  for(var i=0;i<3;i++){var c1=parseInt(a.substr(i*2,2),16),c2=parseInt(b.substr(i*2,2),16);
+    o.push(Math.round(c1+(c2-c1)*t));}
+  return '#'+o.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');}
+function winLabel(){return win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口';}
+function pal(mi){return PAL[mi]||'#5FC2A0';}
+function cutLo(){return win?genMin-win*1440:(cLo||0);}
+function cutHi(){return (!win&&cHi)?cHi:Infinity;}
+function inWin(tsMin){return tsMin>=cutLo()&&tsMin<cutHi();}
+function orderByTokens(A){return models.map(function(m,i){return i;})
+  .filter(function(i){return A.mt[i]>0;})
+  .sort(function(a,b){return A.mt[b]-A.mt[a];});}
+
+/* ---------------- 聚合（与 Python 口径一致） ---------------- */
+function aggregate(){
+  var lo=cutLo(),hi=cutHi();
+  var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,
+    daily:{},dm:{},mt:new Array(models.length).fill(0),
+    hb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
+  for(var si=0;si<SESS.length;si++){
+    var s=SESS[si],st=0,sn=0,first=0,last=0,rs=[];
+    for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];
+      if(r[0]<lo||r[0]>=hi)continue;rs.push(r);
+      var d=new Date(r[0]*60000),dk=fm(d),h=d.getHours();
+      A.tot+=r[2];A.inp+=r[3];A.out+=r[4];A.ch+=r[5];A.cw+=r[6]||0;A.turns++;A.cost+=cost(r);
+      A.plats[s.p]=1;
+      (A.daily[dk]=A.daily[dk]||{h:new Array(24).fill(0),tt:0});
+      A.daily[dk].h[h]+=r[2];A.daily[dk].tt+=r[2];
+      (A.hm[dk]=A.hm[dk]||new Array(24).fill(0))[h]+=r[2];
+      (A.dm[dk]=A.dm[dk]||{})[r[1]]=(A.dm[dk][r[1]]||0)+r[2];
+      A.mt[r[1]]+=r[2];A.bands[Math.min(3,Math.floor(h/6))]+=r[2];
+      (A.hb[r[1]]=A.hb[r[1]]||new Array(24).fill(0))[h]+=r[2];
+      (A.ws[s.w]=A.ws[s.w]||{tt:0,cnt:0});A.ws[s.w].tt+=r[2];
+      if(r[2]>0){(A.sizes[r[1]]=A.sizes[r[1]]||[]).push(r[2]);A.all.push(r[2]);}
+      st+=r[2];sn++;if(!first)first=r[0];last=r[0];}
+    if(sn){A.nsess++;if(A.ws[s.w])A.ws[s.w].cnt+=1;
+      A.sess.push({i:si,s:s,rs:rs,tt:st,tn:sn,first:first,last:last});}
   }
+  A.gp50=pctile(A.all,50);
+  A.costModel=new Array(models.length).fill(0);
+  A.turnsPerModel=new Array(models.length).fill(0);
+  for(var k=0;k<SESS.length;k++)for(var j=0;j<SESS[k].r.length;j++){
+    var rr=SESS[k].r[j];if(!inWin(rr[0]))continue;
+    A.costModel[rr[1]]+=cost(rr);A.turnsPerModel[rr[1]]++;}
+  return A;
+}
+
+/* ---------------- 跟随式 tooltip ---------------- */
+var tip=document.getElementById('tip');
+document.addEventListener('mousemove',function(ev){
+  var t=ev.target,host=t&&t.closest?t.closest('[data-tip]'):null;
+  if(host&&host.dataset.tip){tip.textContent=host.dataset.tip;tip.style.opacity=1;
+    tip.style.left=Math.min(window.innerWidth-290,ev.clientX+14)+'px';
+    tip.style.top=(ev.clientY+16)+'px';}
+  else tip.style.opacity=0;});
+
+/* ---------------- 指标区块 ---------------- */
+function renderHero(A){
+  var order=orderByTokens(A);
+  var top=order.length?order[0]:-1;
+  var days=Object.keys(A.daily).length;
+  var warn=(win&&days&&days<win)?('当前窗口为'+winLabel()+'，实际仅 '+days
+    +' 天有数据 · 日均按有数据日计算，空窗不计入'):'';
+  $('#heroMain').innerHTML=fmt(A.tot)+' Token&ensp;·&ensp;'+nf(A.turns)
+    +' 次请求&ensp;·&ensp;预估 ¥'+A.cost.toFixed(2);
+  $('#heroSub').innerHTML='缓存命中 '+pct(A.ch,A.inp).toFixed(1)+'%&ensp;·&ensp;主力模型 '
+    +esc(top>=0?models[top]:'—')+' 占 '+pct(top>=0?A.mt[top]:0,A.tot).toFixed(1)
+    +'%&ensp;·&ensp;覆盖 '+Object.keys(A.plats).length+' 个平台 / '+days+' 个有数据日';
+  $('#heroWarn').innerHTML=esc(warn);
+  $('#heroPrice').innerHTML='¥'+(A.tot?(A.cost/A.tot*1e6):0).toFixed(2)+' / 百万';
+}
+function renderKpis(A){
+  var days=Object.keys(A.daily).length||1;
+  $('#kpis').innerHTML=[
+    ['合计 Token',fmt(A.tot),'',true],['请求轮次',nf(A.turns),'',false],
+    ['缓存命中率',pct(A.ch,A.inp).toFixed(1),'%',false],
+    ['预估金额（元）','¥'+A.cost.toFixed(2),'',false]
+  ].map(function(x){return '<div class="kpi'+(x[3]?' emph':'')+'"><div class="k">'+x[0]
+    +'</div><div class="v">'+x[1]+(x[2]?'<small>'+x[2]+'</small>':'')+'</div></div>';}).join('');
+  $('#kpi2').innerHTML=[
+    ['日均（有数据天）',fmt(A.tot/days)],['会话',nf(A.nsess)],
+    ['输入 / 输出比',(A.out?Math.round(A.inp/A.out):0)+' : 1']]
+    .map(function(x){return '<div class="kpi"><div class="k">'+x[0]
+      +'</div><div class="v">'+x[1]+'</div></div>';}).join('');
+  $('#s1note').innerHTML=esc(winLabel())+'&ensp;·&ensp;'+Object.keys(A.daily).length+' 个有数据日';
+}
+
+/* ---------------- 按模型消耗 ---------------- */
+function modelRows(A){
+  var order=orderByTokens(A);
+  if(!order.length)return '<div class="cap">暂无数据</div>';
+  var cap=A.mt[order[0]]||1,rows='';
+  order.slice(0,8).forEach(function(mi){
+    var dim=selModel!==null&&selModel!==mi;
+    rows+='<div class="mrow'+(dim?' dim':'')+'"><span class="nm" data-dm="'+mi
+      +'" title="点击聚焦该模型"><i class="dot" style="background:'+pal(mi)+'"></i>'+esc(models[mi])
+      +'<span class="vendor">'+esc(VENDOR[mi]||'')+'</span></span>'
+      +'<span class="track"><i style="width:'+pct(A.mt[mi],cap).toFixed(1)
+      +'%;background:'+pal(mi)+'"></i></span>'
+      +'<span class="num">'+fmt(A.mt[mi])+'&ensp;·&ensp;'+esc(VENDOR[mi]||'')+'&ensp;·&ensp;'
+      +pct(A.mt[mi],A.tot).toFixed(1)+'%</span></div>';});
+  rows+='<div class="mrow"><span class="nm sans">缓存命中率</span><span class="track"></span>'
+    +'<span class="num">'+pct(A.ch,A.inp).toFixed(1)+'%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>';
+  rows+='<div class="mrow"><span class="nm sans">输入 / 输出比</span><span class="track"></span>'
+    +'<span class="num">'+(A.out?Math.round(A.inp/A.out):0)+' : 1&ensp;·&ensp;全局 50% '
+    +fmt(A.gp50)+'</span></div>';
+  return rows;
+}
+
+/* ---------------- 每日堆叠柱 ---------------- */
+function renderDaily(A){
+  var days=Object.keys(A.dm).sort().slice(-14);
+  if(!days.length){$('#dailyChart').innerHTML='<div class="cap">暂无数据</div>';return;}
+  var order=orderByTokens(A);
+  var top=order.slice(0,6);
+  if(selModel!==null&&top.indexOf(selModel)<0)top.push(selModel);
+  var mx=1;
+  days.forEach(function(dk){var t=0;Object.keys(A.dm[dk]).forEach(function(k){t+=A.dm[dk][k];});
+    if(t>mx)mx=t;});
+  var W=460,H=190,left=40,base=158,slot=(W-left-8)/days.length;
+  var bw=Math.max(5,Math.min(34,slot*0.6));
+  var out=['<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="每日模型用量堆叠柱图">',
+    '<path d="M'+left+' 16H'+(W-4)+'M'+left+' '+base+'H'+(W-4)
+    +'" stroke="var(--bd)" stroke-width="1" fill="none"/>',
+    '<text x="2" y="20" fill="var(--t3)" font-size="9">'+fmt(mx)+'</text>',
+    '<text x="2" y="'+(base+3)+'" fill="var(--t3)" font-size="9">0</text>'];
+  days.forEach(function(dk,i){
+    var x=left+i*slot+(slot-bw)/2,acc=0,parts=[];
+    top.forEach(function(mi){if(A.dm[dk][mi])parts.push([mi,A.dm[dk][mi]]);});
+    parts.sort(function(a,b){return b[1]-a[1];});
+    var dayTot=parts.reduce(function(a,p){return a+p[1];},0);
+    parts.forEach(function(pr){var mi=pr[0],v=pr[1],h=v/mx*(base-16),y=base-acc-h;
+      var dim=selModel!==null&&selModel!==mi;
+      out.push('<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)
+        +'" height="'+Math.max(1,h).toFixed(1)+'" fill="'+pal(mi)+'" fill-opacity="'
+        +(dim?0.25:0.92)+'" stroke="var(--bg)" stroke-width=".6"/>');
+      acc+=h;});
+    var dayTip=dk+' · 合计 '+nf(dayTot)+'\n'+parts.map(function(pr){
+      return '· '+models[pr[0]]+'  '+nf(pr[1])+'（'+pct(pr[1],dayTot).toFixed(1)+'%）';}).join('\n');
+    out.push('<rect x="'+(left+i*slot).toFixed(1)+'" y="16" width="'+slot.toFixed(1)
+      +'" height="'+(base-16)+'" fill="#fff" fill-opacity="0" pointer-events="all" data-tip="'
+      +esc(dayTip)+'"/>');
+    var stepL=Math.max(1,Math.ceil(days.length/3));
+    if(days.length<=4||i%stepL===0)out.push('<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+15)
+      +'" fill="var(--t3)" font-size="9" text-anchor="middle">'+dk.slice(5)+'</text>');
+  });
+  out.push('</svg>');
+  var legend=order.slice(0,6).map(function(mi){
+    var dim=selModel!==null&&selModel!==mi;
+    return '<span data-dm="'+mi+'"'+(dim?' style="opacity:.4"':'')
+      +'><i style="background:'+pal(mi)+'"></i>'+esc(models[mi])+'</span>';}).join('');
+  $('#dailyChart').innerHTML='<div class="legend">'+legend+'</div>'+out.join('');
+}
+
+/* ---------------- 单模型总量统计 ---------------- */
+function renderModelTotals(A){
+  var order=orderByTokens(A);
+  if(!order.length){$('#mtCard').innerHTML=
+    '<h3>单模型总量统计</h3><div class="cap">暂无数据</div>';return;}
+  var isCost=document.body.dataset.metric==='cost';
+  var rows=order.slice(0,8).map(function(mi){
+    return '<tr><td style="color:var(--t1);font-weight:600"><i class="dot" style="background:'
+      +pal(mi)+'"></i> '+esc(models[mi])+'</td>'
+      +'<td class="num"><span class="v-token">'+fmt(A.mt[mi])+'</span><span class="v-cost">¥'
+      +A.costModel[mi].toFixed(2)+'</span></td>'
+      +'<td class="mono">'+nf(A.turnsPerModel[mi])+'</td>'
+      +'<td class="num" style="color:var(--brandb)"><span class="v-token">'
+      +pct(A.mt[mi],A.tot).toFixed(1)+'%</span><span class="v-cost">'
+      +pct(A.costModel[mi],A.cost).toFixed(1)+'%</span></td></tr>';});
+  rows.push('<tr class="total"><td>合计</td><td class="num"><span class="v-token">'+fmt(A.tot)
+    +'</span><span class="v-cost">¥'+A.cost.toFixed(2)+'</span></td><td class="mono">'
+    +nf(A.turns)+'</td><td class="num"><span class="v-token">100%</span>'
+    +'<span class="v-cost">100%</span></td></tr>');
+  $('#mtCard').innerHTML=
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>单模型总量统计</h3>'
+    +'<div class="seg" id="metricSeg" role="group" aria-label="显示口径切换">'
+    +'<button type="button" class="'+(isCost?'':'on')+'" data-metric-opt="token">按 Token</button>'
+    +'<button type="button" class="'+(isCost?'on':'')
+    +'" data-metric-opt="cost">按金额</button></div>'
+    +'<span class="hdnote" style="margin-left:auto">周期跟随全局时间窗口 · 当前 '
+    +esc(winLabel())+'</span></div>'
+    +'<div class="cap">「按 Token / 按金额」可切换显示口径 · 金额按牌价与摊算规则估算 · '
+    +'缓存写入按 1.25× 输入价 · 单价与汇率详见口径页</div>'
+    +'<table><thead><tr><th>模型</th>'
+    +'<th><span class="v-token">Token 总量</span><span class="v-cost">预估金额（元）</span></th>'
+    +'<th>请求次数</th><th><span class="v-token">Token 占比</span>'
+    +'<span class="v-cost">金额占比</span></th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+  var seg=document.getElementById('metricSeg');
+  if(seg)seg.addEventListener('click',function(ev){
+    var opt=ev.target.closest('[data-metric-opt]');if(!opt)return;
+    document.body.dataset.metric=opt.getAttribute('data-metric-opt');
+    [].forEach.call(seg.querySelectorAll('[data-metric-opt]'),function(x){
+      x.classList.toggle('on',x===opt);});});
+}
+
+/* ---------------- 0—24 时分布 ---------------- */
+function renderHour(A){
+  var top=orderByTokens(A).slice(0,2);
+  if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';return;}
+  var W=1240,base=150;
+  var peak=niceMax(Math.max.apply(null,top.map(function(mi){
+    return Math.max.apply(null,A.hb[mi]||new Array(24).fill(0));})));
+  var step=W/24,out=['<svg viewBox="0 0 '+W+' '+(base+34)
+    +'" role="img" aria-label="0—24 时按模型分布">'];
+  [0.2,0.55].forEach(function(fr){var y=base-fr*(base-12);
+    out.push('<line x1="0" y1="'+y.toFixed(1)+'" x2="'+W+'" y2="'+y.toFixed(1)
+      +'" stroke="var(--bd)" stroke-width="1"/>');
+    out.push('<text x="2" y="'+(y-5).toFixed(1)+'" fill="var(--t3)" font-size="10">'
+      +fmt(peak*fr)+'</text>');});
+  out.push('<line x1="0" y1="'+base+'" x2="'+W+'" y2="'+base
+    +'" stroke="var(--bds)" stroke-width="1"/>');
+  top.forEach(function(mi,i){
+    var series=A.hb[mi]||new Array(24).fill(0);
+    var pts=series.map(function(v,h){return [h*step,base-v/peak*(base-12)];});
+    var line=smoothLine(pts);
+    var dim=selModel!==null&&selModel!==mi;
+    out.push('<g opacity="'+(dim?0.25:1)+'">'
+      +'<path d="'+line+' L'+W+','+base+' L0,'+base+' Z" fill="'+pal(mi)
+      +'" fill-opacity="'+(i===0?0.16:0.12)+'" stroke="none"/>'
+      +'<path d="'+line+'" fill="none" stroke="'+pal(mi)+'" stroke-width="2"/>'
+      +'<path d="'+line+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="8" data-tip="'
+      +esc(models[mi]+'\n24h 合计 '+fmt(A.mt[mi]))+'"/></g>');});
+  for(var h=0;h<24;h+=2)out.push('<text x="'+(h*step+6).toFixed(1)+'" y="'+(base+22)
+    +'" fill="var(--t3)" font-size="10">'+h+'时</text>');
+  out.push('</svg>');
+  var legend=top.map(function(mi){var dim=selModel!==null&&selModel!==mi;
+    return '<span data-dm="'+mi+'"'+(dim?' style="opacity:.4"':'')
+      +'><i style="background:'+pal(mi)+'"></i>'+esc(models[mi])+' · '
+      +esc(VENDOR[mi]||'')+'</span>';}).join('');
+  $('#hourChart').innerHTML='<div class="legend" style="justify-content:flex-end">'
+    +legend+'</div>'+out.join('');
+}
+
+/* ---------------- 单次请求大小分布 ---------------- */
+function renderDist(A){
+  var order=models.map(function(m,i){return i;})
+    .filter(function(i){return A.sizes[i]&&A.sizes[i].length;})
+    .sort(function(a,b){return A.mt[b]-A.mt[a];});
+  var top=order.slice(0,2);
+  if(!top.length){$('#distBody').innerHTML='<div class="cap">暂无数据</div>';
+    $('#distNote').textContent='';return;}
+  $('#distNote').textContent='TOP '+top.length+' 模型 · 共 '
+    +nf(top.reduce(function(a,mi){return a+A.sizes[mi].length;},0))+' 次';
+  var cap90=Math.max.apply(null,top.map(function(mi){return pctile(A.sizes[mi],90);}))||1;
+  var head='<div class="dhead drow" style="border-bottom:1px solid var(--bd)"><span>模型</span>'
+    +'<span>次数</span><span>50%</span><span>90%</span></div>';
+  var left=top.map(function(mi){
+    var s50=pctile(A.sizes[mi],50),s90=pctile(A.sizes[mi],90);
+    function cell(v,is90){var c=is90?blend(pal(mi),'#FFFFFF',0.45):pal(mi);
+      return '<span class="val">'+fmt(v)+'<small>'+(is90?'90%':'50%')
+        +'<i style="width:'+pct(v,cap90).toFixed(1)+'%;background:'+c+'"></i></small></span>';}
+    return '<div class="drow"><span class="nm">'+esc(models[mi])+'</span><span class="val">'
+      +nf(A.sizes[mi].length)+'</span>'+cell(s50,false)+cell(s90,true)+'</div>';}).join('');
+  var hi=niceMax(cap90*1.35),K=36,width=860,base=150,step=width/K;
+  var svg=['<svg viewBox="0 0 '+width+' '+(base+26)
+    +'" role="img" aria-label="单次请求大小分布">'];
+  svg.push('<line x1="0" y1="'+base+'" x2="'+width+'" y2="'+base
+    +'" stroke="var(--bds)" stroke-width="1"/>');
+  top.forEach(function(mi){
+    var hist=new Array(K).fill(0);
+    A.sizes[mi].forEach(function(v){hist[Math.min(K-1,Math.floor(v/hi*K))]++;});
+    var pk=Math.max.apply(null,hist)||1;
+    var sm=hist.map(function(v,i){return ((hist[i-1]||0)+2*v+(hist[i+1]||0))/4/pk;});
+    var pts=sm.map(function(v,i){return [i*step+step/2,base-v*(base-16)];});
+    var line=smoothLine(pts);
+    var dim=selModel!==null&&selModel!==mi;
+    var s50=pctile(A.sizes[mi],50),s90=pctile(A.sizes[mi],90);
+    var tipTxt=esc(models[mi]+'\n'+nf(A.sizes[mi].length)+' 次 · 50% '+fmt(s50)+' · 90% '+fmt(s90));
+    svg.push('<g opacity="'+(dim?0.25:1)+'">'
+      +'<path d="'+line+' L'+width+','+base+' L0,'+base+' Z" fill="'+pal(mi)
+      +'" fill-opacity="0.14"/>'
+      +'<path d="'+line+'" fill="none" stroke="'+pal(mi)+'" stroke-width="2"/>'
+      +'<line x1="'+(s50/hi*width).toFixed(1)+'" y1="26" x2="'+(s50/hi*width).toFixed(1)
+      +'" y2="'+base+'" stroke="'+pal(mi)+'" stroke-width="1.5" stroke-opacity=".8"/>'
+      +'<circle cx="'+(s90/hi*width).toFixed(1)+'" cy="'
+      +(base-curY(sm,s90,hi)*(base-16)).toFixed(1)+'" r="3.5" fill="#8A9A90"/>'
+      +'<path d="'+line+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="8" data-tip="'
+      +tipTxt+'"/></g>');});
+  var gx=A.gp50/hi*width;
+  svg.push('<line x1="'+gx.toFixed(1)+'" y1="14" x2="'+gx.toFixed(1)+'" y2="'+base
+    +'" stroke="var(--t3)" stroke-width="1" stroke-dasharray="4 4"/>');
+  svg.push('<text x="'+Math.min(width-4,gx+6).toFixed(1)+'" y="24" fill="var(--t3)" '
+    +'font-size="10">全局 50% '+fmt(A.gp50)+'</text>');
+  [0,1/3,2/3,1].forEach(function(fr){
+    svg.push('<text x="'+(width*fr).toFixed(1)+'" y="'+(base+20)+'" fill="var(--t3)" '
+      +'font-size="10"'+(fr===1?' text-anchor="end"':'')+'>'+(fr===0?'0':fmt(hi*fr))+'</text>');});
+  svg.push('</svg>');
+  $('#distBody').innerHTML='<div class="distwrap"><div>'+head+left+'</div><div>'+svg.join('')
+    +'<div class="cap" style="margin-top:8px">每模型一条分布形状（各自归一）· '
+    +'实线=该模型 50% · 灰点=90% · 虚线=全局 50% · '
+    +'数值下条形=两列共享刻度的大小对比（深=50% 浅=90%）</div></div></div>';
+}
+
+/* ---------------- 日活热力 ---------------- */
+function renderHeat(A){
+  var days=Object.keys(A.hm).sort().slice(-3).reverse();
+  if(!days.length){$('#dayhourCard').innerHTML='<div class="cap">暂无数据</div>';return;}
+  var bandTotal=A.bands.reduce(function(a,b){return a+b;},0)||1;
+  var names=['凌晨 0—6','上午 6—12','下午 12—18','晚间 18—24'];
+  var chips='<div class="chips">'+A.bands.map(function(v,i){
+    return '<div class="chip2"><span>'+names[i]+'</span><b>'
+      +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
+  var peak=1;
+  days.forEach(function(dk){A.hm[dk].forEach(function(v){if(v>peak)peak=v;});});
+  var cell=40,gap=6,width=24*(cell+gap),rowH=16,rowGap=8;
+  var svg=['<svg viewBox="0 0 '+width+' '+(days.length*(rowH+rowGap)+24)
+    +'" role="img" aria-label="日 × 小时热力图">'];
+  for(var h=0;h<24;h++)svg.push('<text x="'+(h*(cell+gap)+12)+'" y="12" fill="var(--t3)" '
+    +'font-size="9" text-anchor="middle">'+h+'</text>');
+  days.forEach(function(dk,r){var y=22+r*(rowH+rowGap);
+    for(var hh=0;hh<24;hh++){var v=A.hm[dk][hh];
+      var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
+      var dayTot=A.daily[dk]?A.daily[dk].tt:0;
+      svg.push('<rect x="'+(hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
+        +'" rx="3" fill="'+HEAT[lv]+'" data-tip="'+esc(dk+' '+hh+':00–'+(hh+1)
+        +':00\n'+nf(v)+' token（占当日 '+pct(v,dayTot).toFixed(1)+'%）')+'"/>');}});
+  svg.push('</svg>');
+  var labels=days.map(function(dk){return '<div style="height:'+(rowH+rowGap)
+    +'px;display:flex;align-items:center;font-family:var(--mono);font-size:10px;color:var(--t2)">'
+    +esc(dk.slice(5).replace('-','—'))+'</div>';}).join('');
+  var sw=HEAT.map(function(c){return '<i style="background:'+c+'"></i>';}).join('');
+  $('#dayhourCard').innerHTML=chips+'<div class="hmlegend">低 '+sw+' 高</div>'
+    +'<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
+    +'<div style="padding-top:22px">'+labels+'</div><div>'+svg.join('')+'</div></div>';
+}
+
+/* ---------------- 工作空间 / 下钻 ---------------- */
+function heatLevel(v,avg){if(v<=0)return 0;
+  return Math.min(7,Math.max(1,1+Math.floor(Math.log(v/avg/0.001)/Math.log(350)*7)));}
+function vizCells(perDay,days,avg){var h='';
+  days.forEach(function(dk){var arr=perDay[dk]||[];
+    for(var k=0;k<wsMult;k++){
+      var a=Math.floor(24*k/wsMult),b=Math.floor(24*(k+1)/wsMult),v=0;
+      for(var hh=a;hh<b;hh++)v+=arr[hh]||0;
+      h+='<i style="background:'+HEAT[heatLevel(v,avg)]
+        +'" title="'+esc(dk+' '+a+':00–'+b+':00 · '+fmt(v))+'"></i>';}});
+  return h;}
+function shdCells(entry,days,avg){var per={};
+  entry.rs.forEach(function(r){var d=new Date(r[0]*60000),dk=fm(d);
+    (per[dk]=per[dk]||new Array(24).fill(0))[d.getHours()]+=r[2];});
+  return vizCells(per,days,avg);}
+function rowHtml(attrs,nm,tk,share,sub,viz){
+  return '<div class="wsrow click" '+attrs+'><span class="nm" title="'+esc(nm)+'">'
+    +esc(nm)+'</span><span class="tk">'+fmt(tk)
+    +'</span><span class="sh">'+share+'<small>· '+sub+'</small></span>'
+    +'<span class="wviz">'+viz+'</span><span class="chev">›</span></div>';}
+function renderPanel(A){
+  var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
+  var days=Object.keys(A.hm).sort().slice(-7);
+  var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
+  var whd={};
+  SESS.forEach(function(s){if(state.ws!==null&&s.w!==state.ws)return;
+    for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];if(!inWin(r[0]))continue;
+      var d=new Date(r[0]*60000),dk=fm(d);
+      (whd[s.w]=whd[s.w]||{});(whd[s.w][dk]=whd[s.w][dk]||new Array(24).fill(0));
+      whd[s.w][dk][d.getHours()]+=r[2];}});
+  if(state.ws===null){
+    crumb.style.display='none';tools.style.display='block';
+    $('#wsTitle').textContent='工作空间活跃分布';
+    if(wsMode==='ses'){
+      var sr=A.sess.filter(function(x){return !q||(x.s.t||'').toLowerCase().indexOf(q)>=0;})
+        .sort(function(a,b){return b.tt-a.tt;});
+      if(!sr.length){panel.innerHTML='<div class="cap">无匹配的会话</div>';return;}
+      panel.innerHTML='<div class="wshead"><span>会话</span><span>Token</span>'
+        +'<span>占比 / 轮次</span><span>分布（近 7 个有数据日）</span><span></span></div>'
+        +sr.map(function(x){return rowHtml('data-si="'+x.i+'" data-tokens="'+x.tt
+          +'" data-sessions="'+x.tn+'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
+          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+      return;}
+    var order=Object.keys(A.ws).map(Number).filter(function(w){return A.ws[w].tt>0;});
+    order.sort(function(a,b){return wsSort==='tokens'
+      ?A.ws[b].tt-A.ws[a].tt:(A.ws[b].cnt||0)-(A.ws[a].cnt||0);});
+    if(q)order=order.filter(function(w){return WS[w].toLowerCase().indexOf(q)>=0;});
+    if(!order.length){panel.innerHTML='<div class="cap">'
+      +(A.tot?'无匹配的工作空间':'该时间范围内无数据')+'</div>';return;}
+    panel.innerHTML='<div class="wshead"><span>工作空间</span><span>Token</span>'
+      +'<span>占比 / 会话</span><span>分布（近 7 个有数据日）</span><span></span></div>'
+      +order.map(function(w){return rowHtml('data-ws="'+w+'" data-tokens="'+A.ws[w].tt
+        +'" data-sessions="'+(A.ws[w].cnt||0)+'" data-name="'+esc(WS[w].toLowerCase())+'"',
+        WS[w],A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
+        vizCells(whd[w]||{},days,avgD));}).join('');
+    return;}
+  var entry=null;
+  if(state.ses!==null)for(var ei=0;ei<A.sess.length;ei++){
+    if(A.sess[ei].i===state.ses){entry=A.sess[ei];break;}}
+  if(state.ses===null||!entry){
+    crumb.innerHTML='<button class="chip on" data-a="root">← 返回列表</button>'
+      +'<span class="path"><span class="cur">'+esc(WS[state.ws])+'</span></span>';
+    crumb.style.display='flex';tools.style.display='none';
+    $('#wsTitle').textContent=WS[state.ws]+' · 会话列表';
+    var arr=A.sess.filter(function(x){return x.s.w===state.ws;})
+      .sort(function(a,b){return b.tt-a.tt;});
+    if(!arr.length){panel.innerHTML='<div class="cap">该窗口内此工作空间无数据</div>';return;}
+    panel.innerHTML=arr.map(function(x){return rowHtml('data-si="'+x.i
+      +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
+      +'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
+      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+    return;}
+  var s=entry;
+  crumb.innerHTML='<button class="chip on" data-a="up">← 返回</button>'
+    +'<span class="path"><a data-a="root" style="cursor:pointer;'
+    +'text-decoration:underline dotted">'+esc(WS[state.ws])+'</a>'
+    +'<span class="sep">›</span><span class="cur">'+esc(s.s.t)+'</span></span>';
+  crumb.style.display='flex';tools.style.display='none';
+  $('#wsTitle').textContent='会话详情';
+  panel.innerHTML='<div class="view-h"><div><div class="view-t">'+esc(s.s.t)+'</div>'
+    +'<div class="view-m">'+fd(new Date(s.first*60000))+' '+ft(new Date(s.first*60000))
+    +' → '+fd(new Date(s.last*60000))+' '+ft(new Date(s.last*60000))
+    +' · '+nf(s.rs.length)+' 次请求 · 合计 '+fmt(s.tt)+'</div></div>'
+    +'<div><button class="mini on" data-v="sc">散点</button> '
+    +'<button class="mini" data-v="tb">明细表</button></div></div><div id="reqView"></div>';
+  drawScatter(s);
+  var bv=panel.querySelector('[data-v="sc"]'),bt=panel.querySelector('[data-v="tb"]');
+  function setV(v){[bv,bt].forEach(function(b){
+    b.classList.toggle('on',b.getAttribute('data-v')===v);});}
+  if(bv)bv.onclick=function(){drawScatter(s);setV('sc');};
+  if(bt)bt.onclick=function(){drawTable(s);setV('tb');};
+}
+function drawScatter(s){
+  var el=$('#reqView');if(!el)return;
+  var reqs=s.rs;
+  if(!reqs.length){el.innerHTML='<div class="cap">暂无数据</div>';return;}
+  var W=Math.max(420,el.clientWidth||560),H=250,pL=46,pR=12,pT=12,pB=26;
+  var t0=reqs[0][0],t1=reqs[reqs.length-1][0],span=Math.max(1,t1-t0);
+  var mx=1;reqs.forEach(function(r){if(r[2]>mx)mx=r[2];});
+  function X(v){return pL+(W-pL-pR)*(v-t0)/span;}
+  function Y(v){return pT+(H-pT-pB)*(1-Math.log(v+1)/Math.log(mx+1));}
+  var g='';for(var i=0;i<4;i++){var yy=pT+(H-pT-pB)*i/3;
+    g+='<line x1="'+pL+'" y1="'+yy.toFixed(1)+'" x2="'+(W-pR)+'" y2="'+yy.toFixed(1)
+    +'" stroke="var(--bd)"/>';}
+  var pts='';reqs.forEach(function(r){var d=new Date(r[0]*60000);
+    var tipTxt=fd(d)+' '+ft(d)+':'+String(d.getSeconds()).padStart(2,'0')+'\n'+models[r[1]]
+      +'\n输入 '+nf(r[3])+' · 输出 '+nf(r[4])+'\n缓存 '+nf(r[5])+' · 合计 '+nf(r[2]);
+    pts+='<circle cx="'+X(r[0]).toFixed(1)+'" cy="'+Y(r[2]).toFixed(1)+'" r="3.2" fill="'
+      +pal(r[1])+'" fill-opacity=".82" data-tip="'+esc(tipTxt)+'"/>';});
+  var d0=new Date(t0*60000),d1=new Date(t1*60000);
+  el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%"><g>'+g+pts
+    +'<text x="'+pL+'" y="'+(pT+8)+'" font-size="9" fill="var(--t3)">'+fmt(mx)+'</text>'
+    +'<text x="'+pL+'" y="'+(H-6)+'" font-size="9" fill="var(--t3)">'+fd(d0)+' '+ft(d0)+'</text>'
+    +'<text x="'+(W-pR)+'" y="'+(H-6)+'" font-size="9" fill="var(--t3)" text-anchor="end">'
+    +fd(d1)+' '+ft(d1)+'</text></g></svg>'
+    +'<div style="margin-top:6px;font-size:10px;color:var(--t3)">x=时间 · y=单次请求 token'
+    +'（对数） · 悬浮看单条明细</div>';
+}
+function drawTable(s){
+  var el=$('#reqView');if(!el)return;
+  var rows=s.rs.slice().reverse().map(function(r){var d=new Date(r[0]*60000);
+    var tipTxt='输入 '+nf(r[3])+' · 输出 '+nf(r[4])+' · 缓存 '+nf(r[5])+' · 合计 '+nf(r[2]);
+    return '<tr data-tip="'+esc(tipTxt)+'"><td class="mono">'+fd(d)+' '+ft(d)+'</td>'
+      +'<td style="text-align:left">'+esc(models[r[1]])+'</td><td class="mono">'+nf(r[3])
+      +'</td><td class="mono">'+nf(r[4])+'</td><td class="mono">'+nf(r[5])
+      +'</td><td class="mono">'+nf(r[2])+'</td></tr>';}).join('');
+  el.innerHTML='<div class="rt-wrap"><table><thead><tr><th>时间</th>'
+    +'<th style="text-align:left">模型</th><th>输入</th><th>输出</th><th>缓存命中</th>'
+    +'<th>合计</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+/* ---------------- 总调度 ---------------- */
+function renderAll(){
+  var A=aggregate();LASTA=A;
+  renderHero(A);renderKpis(A);
+  $('#modelRows').innerHTML=modelRows(A);
+  $('#modelCap').innerHTML='同厂商模型用明度阶梯区分，色相保持品牌体系 · 全局 50% 单次请求 '
+    +fmt(A.gp50);
+  renderDaily(A);renderModelTotals(A);renderHour(A);renderDist(A);renderHeat(A);
+  renderPanel(A);
+  [].forEach.call(document.querySelectorAll('.ppill'),function(b){
+    b.classList.toggle('on',win===+b.dataset.w);});
+}
+
+/* ---------------- 事件 ---------------- */
+document.addEventListener('click',function(ev){
+  var t=ev.target;if(!t||!t.closest)return;
+  var n;
+  if((n=t.closest('[data-a]'))){
+    if(n.dataset.a==='root'){state={ws:null,ses:null};renderAll();}
+    else if(n.dataset.a==='up'&&state.ws!==null){state={ws:state.ws,ses:null};renderAll();}
+    return;}
+  if((n=t.closest('[data-ws]'))){state={ws:+n.dataset.ws,ses:null};renderAll();return;}
+  if((n=t.closest('[data-si]'))){
+    var idx=+n.dataset.si,entry=null;
+    if(LASTA)for(var i=0;i<LASTA.sess.length;i++){
+      if(LASTA.sess[i].i===idx){entry=LASTA.sess[i];break;}}
+    if(entry){state={ws:entry.s.w,ses:idx};renderAll();}
+    return;}
+  if((n=t.closest('.ppill'))){var wv=+n.dataset.w;if(wv<0)return;
+    win=wv;cLo=0;cHi=0;selModel=null;
+    $('#dStart').value='';$('#dEnd').value='';renderAll();return;}
+  if((n=t.closest('[data-m]'))){wsMode=n.dataset.m;
+    [].forEach.call(document.querySelectorAll('#wsTools [data-m]'),function(b){
+      b.classList.toggle('on',b===n);});renderAll();return;}
+  if((n=t.closest('[data-s]'))){wsSort=n.dataset.s;
+    [].forEach.call(document.querySelectorAll('#wsTools [data-s]'),function(b){
+      b.classList.toggle('on',b===n);});renderAll();return;}
+  if((n=t.closest('[data-dm]'))){var mi=+n.dataset.dm;
+    selModel=(selModel===mi?null:mi);renderAll();return;}
+});
+$('#wsSearch').addEventListener('input',function(ev){
+  q=ev.target.value.trim().toLowerCase();renderAll();});
+$('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+function applyCustom(){
+  var sv=$('#dStart').value,ev=$('#dEnd').value;if(!sv&&!ev)return;
+  cLo=sv?Math.floor(new Date(sv+'T00:00:00').getTime()/60000):0;
+  cHi=ev?Math.floor((new Date(ev+'T00:00:00').getTime()+86400e3)/60000):0;
+  win=0;selModel=null;renderAll();}
+$('#dStart').addEventListener('change',applyCustom);
+$('#dEnd').addEventListener('change',applyCustom);
+var themeBtn=document.getElementById('themeBtn');
+themeBtn.textContent=DARK?'浅色':'深色';
+themeBtn.onclick=function(){DARK=!DARK;HEAT=DARK?HEAT_D:HEAT_L;
+  document.body.dataset.theme=DARK?'dark':'light';
+  try{localStorage.setItem('tb-theme',DARK?'dark':'light');}catch(e){}
+  themeBtn.textContent=DARK?'浅色':'深色';renderAll();};
+renderAll();
 })();
 """
 
@@ -243,7 +843,6 @@ def fmt(value: float | int) -> str:
 
 
 def _nice_max(value: float) -> float:
-    """把纵轴上限归整到 1/2/2.5/5 × 10^n，网格线读起来是整数。"""
     if value <= 0:
         return 1.0
     mag = 10 ** math.floor(math.log10(value))
@@ -254,7 +853,7 @@ def _nice_max(value: float) -> float:
 
 
 def _smooth_path(points: list[tuple[float, float]]) -> str:
-    """Catmull-Rom → 三次贝塞尔，把离散序列变成设计稿里的平滑曲线。"""
+    """Catmull-Rom → 三次贝塞尔（Python 静态首屏用；JS 端用 Fritsch-Carlson）。"""
     if not points:
         return ""
     if len(points) < 3:
@@ -272,7 +871,6 @@ def _smooth_path(points: list[tuple[float, float]]) -> str:
 
 
 def _blend(hex_color: str, other: str, t: float) -> str:
-    """两色插值；用于 90% 对比条的浅色变体。"""
     raw1, raw2 = hex_color.lstrip("#"), other.lstrip("#")
     out = []
     for i in (0, 2, 4):
@@ -282,7 +880,6 @@ def _blend(hex_color: str, other: str, t: float) -> str:
 
 
 def _vars(tokens: dict[str, str]) -> str:
-    """把主题令牌转成 CSS 自定义属性声明。"""
     mapping = {
         "bg": "--bg", "surface": "--surface", "surface_2": "--surface2",
         "border": "--bd", "border_strong": "--bds", "text_1": "--t1",
@@ -294,11 +891,87 @@ def _vars(tokens: dict[str, str]) -> str:
     return "".join(f"{css}:{tokens[key]};" for key, css in mapping.items() if key in tokens)
 
 
-def _heat_vars(name: str) -> str:
+def _heat_css(name: str) -> str:
     return "".join(f"--h{i}:{c};" for i, c in enumerate(HEATMAPS.get(name, HEATMAPS["light"])))
 
 
-# ------------------------------------------------------------------ 区块
+def _heat_json(name: str) -> str:
+    return json.dumps(list(HEATMAPS.get(name, HEATMAPS["light"])))
+
+
+def _ws_order(summary: Summary) -> list[str]:
+    """工作空间唯一排序（Token 降序、名称升序）；静态首屏与 JS 载荷共用同一顺序，
+    保证 data-ws 下标在两边指向同一个工作空间。"""
+    return sorted(
+        summary.by_workspace,
+        key=lambda w: (-summary.by_workspace[w]["tokens"], w),
+    )
+
+
+# ------------------------------------------------------------------ 数据载荷
+
+def _payload(
+    summary: Summary,
+    records: Sequence[UsageRecord],
+    palette: dict[str, str],
+    prices: dict | None,
+    generated: str,
+    window_days_: int | None,
+    custom_range: tuple[int | None, int | None] | None,
+) -> dict[str, Any]:
+    """把请求级明细压成页面内可聚合的最小载荷（分钟粒度）。"""
+    models = summary.models
+    model_idx = {m: i for i, m in enumerate(models)}
+    ws_names = _ws_order(summary)
+    ws_idx = {w: i for i, w in enumerate(ws_names)}
+    platforms = sorted(summary.by_platform)
+    plat_idx = {p: i for i, p in enumerate(platforms)}
+
+    sess_map: dict[tuple[str, str], list[UsageRecord]] = {}
+    for rec in records:
+        sess_map.setdefault((rec.platform, rec.session_id), []).append(rec)
+    sessions = []
+    for (platform, sid), rs in sess_map.items():
+        rs = sorted(rs, key=lambda r: r.ts)
+        recs = [
+            [r.ts // 60, model_idx.get(r.model, 0), r.total_tokens, r.input_tokens,
+             r.output_tokens, r.cache_read_tokens, r.cache_write_tokens]
+            for r in rs
+        ]
+        title = sid if len(sid) <= 44 else sid[:24] + "…" + sid[-14:]
+        sessions.append({
+            "w": ws_idx.get(rs[0].workspace, 0),
+            "p": plat_idx.get(platform, 0),
+            "t": title,
+            "r": recs,
+        })
+    sessions.sort(key=lambda s: -sum(x[2] for x in s["r"]))
+    price_table = []
+    for m in models:
+        p = price_of(m, prices)
+        price_table.append([p.input, p.output, p.cache_read])
+    last_ts = summary.last_ts or int(datetime.now().timestamp())
+    custom = None
+    if custom_range and (custom_range[0] or custom_range[1]):
+        lo = custom_range[0] // 60 if custom_range[0] else 0
+        hi = custom_range[1] // 60 if custom_range[1] else 0
+        custom = [lo, hi]
+    return {
+        "gen": generated,
+        "genMin": last_ts // 60,
+        "win": window_days_ if window_days_ is not None else (None if custom else 30),
+        "custom": custom,
+        "models": models,
+        "palette": [palette[m] for m in models],
+        "vendor": [vendor_of(m) for m in models],
+        "prices": price_table,
+        "platforms": platforms,
+        "workspaces": ws_names,
+        "sessions": sessions,
+    }
+
+
+# ------------------------------------------------------------------ 静态首屏
 
 def _hero(summary: Summary, window_note: str) -> str:
     kpi = summary.kpi()
@@ -307,16 +980,17 @@ def _hero(summary: Summary, window_note: str) -> str:
         summary.by_model[top_model]["tokens"] / summary.total_tokens * 100
         if summary.total_tokens and summary.models else 0.0
     )
-    warn = f'<div class="warn">{e(window_note)}</div>' if window_note else ""
+    warn = f'<div class="warn" id="heroWarn">{e(window_note)}</div>' if window_note \
+        else '<div class="warn" id="heroWarn"></div>'
     return (
         '<div class="hero"><div class="lab">本 期 结 论</div>'
-        f'<div class="main">{fmt(summary.total_tokens)} Token&ensp;·&ensp;'
+        f'<div class="main" id="heroMain">{fmt(summary.total_tokens)} Token&ensp;·&ensp;'
         f'{kpi["requests"]:,} 次请求&ensp;·&ensp;预估 ¥{kpi["estimated_cost_cny"]:.2f}</div>'
-        f'<div class="sub2">缓存命中 {kpi["cache_hit_rate"]:.1f}%&ensp;·&ensp;'
+        f'<div class="sub2" id="heroSub">缓存命中 {kpi["cache_hit_rate"]:.1f}%&ensp;·&ensp;'
         f'主力模型 {e(top_model)} 占 {top_share:.1f}%&ensp;·&ensp;'
         f'覆盖 {len(summary.by_platform)} 个平台 / {kpi["active_days"]} 个有数据日</div>{warn}'
         f'<div class="side"><div class="k">折合单价</div>'
-        f'<div class="v">¥{kpi["price_per_million_cny"]:.2f} / 百万</div></div></div>'
+        f'<div class="v" id="heroPrice">¥{kpi["price_per_million_cny"]:.2f} / 百万</div></div></div>'
     )
 
 
@@ -333,17 +1007,17 @@ def _kpi_cards(items: Sequence[tuple[str, str, str, bool]]) -> str:
 
 
 def _model_card(summary: Summary, palette: dict[str, str]) -> str:
-    """按模型消耗：条形 + 两行口径（缓存命中 / 输入输出比），空轨道仅示意。"""
     if not summary.models:
         return '<div class="cap">暂无数据</div>'
     cap = max(summary.by_model[m]["tokens"] for m in summary.models[:8]) or 1
     rows = []
-    for m in summary.models[:8]:
+    for mi, m in enumerate(summary.models[:8]):
         tokens = summary.by_model[m]["tokens"]
         share = tokens / summary.total_tokens * 100 if summary.total_tokens else 0
         rows.append(
-            f'<div class="mrow"><span class="nm"><i class="dot" style="background:{e(palette[m])}"></i>'
-            f'{e(m)}<span class="vendor">{e(vendor_of(m))}</span></span>'
+            f'<div class="mrow"><span class="nm" data-dm="{mi}" title="点击聚焦该模型">'
+            f'<i class="dot" style="background:{e(palette[m])}"></i>{e(m)}'
+            f'<span class="vendor">{e(vendor_of(m))}</span></span>'
             f'<span class="track"><i style="width:{tokens / cap * 100:.1f}%;'
             f'background:{e(palette[m])}"></i></span>'
             f'<span class="num">{fmt(tokens)}&ensp;·&ensp;{e(vendor_of(m))}&ensp;·&ensp;'
@@ -359,7 +1033,6 @@ def _model_card(summary: Summary, palette: dict[str, str]) -> str:
 
 
 def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[str, str]) -> str:
-    """按天 × 模型堆叠柱；品牌色只出现在这里的数据系列上。"""
     matrix: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for rec in records:
         day = datetime.fromtimestamp(rec.ts).strftime("%Y-%m-%d")
@@ -389,8 +1062,8 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
             y = base - acc - h
             parts.append(
                 f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{max(1, h):.1f}" '
-                f'fill="{e(palette[model])}" stroke="var(--bg)" stroke-width=".6">'
-                f'<title>{e(day)} · {e(model)} · {fmt(value)}</title></rect>'
+                f'fill="{e(palette[model])}" fill-opacity="0.92" '
+                f'stroke="var(--bg)" stroke-width=".6"><title>{e(day)} · {e(model)} · {fmt(value)}</title></rect>'
             )
             acc += h
         step = max(1, len(days) // 3)
@@ -401,87 +1074,15 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
             )
     parts.append("</svg>")
     legend = "".join(
-        f'<span><i style="background:{e(palette[m])}"></i>{e(m)}</span>'
-        for m in summary.models[:6]
+        f'<span data-dm="{mi}"><i style="background:{e(palette[m])}"></i>{e(m)}</span>'
+        for mi, m in enumerate(summary.models[:6])
     )
     return f'<div class="legend">{legend}</div>' + "".join(parts)
 
 
-def _sources_card(statuses: Sequence[SourceStatus]) -> str:
-    rows = []
-    for s in statuses:
-        pill = ('<span class="pill ok">已验证</span>' if s.verified
-                else '<span class="pill no">未验证</span>')
-        note = e(s.note) if s.note else ("" if s.verified else "本机没有真实日志可供核对")
-        root = e(s.roots[0]) if s.roots else "—"
-        rows.append(
-            f'<tr><td style="color:var(--t1);font-weight:600">{e(s.display_name)}</td>'
-            f'<td class="mono">{root}</td><td class="mono">{s.file_count}</td>'
-            f'<td>{pill}</td><td style="font-size:10.5px">{note}</td></tr>'
-        )
-    live = ('<span class="livedot"></span><span style="font-size:10px;color:var(--t2)">'
-            "本机日志已连接</span>") if any(s.verified for s in statuses) else ""
-    table = (
-        "<table><thead><tr><th>平台</th><th>默认路径</th><th>文件</th><th>状态</th>"
-        "<th>说明</th></tr></thead><tbody>"
-        + ("".join(rows) or '<tr><td colspan="5">未指定数据源</td></tr>')
-        + "</tbody></table>"
-    )
-    return f'<div style="position:absolute;right:22px;top:16px">{live}</div>' + table
-
-
-def _workspace_card(records: Iterable[UsageRecord], summary: Summary) -> str:
-    """工作空间活跃分布：工具栏 + 行（Token / 占比·会话 / 近 7 日分布 sparkbar）。"""
-    if not summary.by_workspace:
-        return '<div class="cap">暂无数据</div>'
-    ws_daily: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for rec in records:
-        day = datetime.fromtimestamp(rec.ts).strftime("%Y-%m-%d")
-        ws_daily[rec.workspace][day] += rec.total_tokens
-    recent_days = sorted({d for w in ws_daily for d in ws_daily[w]})[-7:]
-    total = summary.total_tokens or 1
-    ranked = sorted(summary.by_workspace, key=lambda w: -summary.by_workspace[w]["tokens"])[:7]
-    head = ('<div class="wshead"><span>工作空间</span><span>Token</span><span>占比 / 会话</span>'
-            "<span>分布（近 7 个有数据日）</span><span></span></div>")
-    rows = []
-    for w in ranked:
-        info = summary.by_workspace[w]
-        sessions = len(summary.ws_sessions.get(w, ()))
-        weekly = [ws_daily.get(w, {}).get(d, 0) for d in recent_days]
-        week_sum = sum(weekly) or 1
-        segs = "".join(
-            f'<i class="{"alt" if idx % 2 else ""}" style="width:{v / week_sum * 100:.1f}%"></i>'
-            for idx, v in enumerate(weekly) if v
-        )
-        fallback = "<i style='width:2%'></i>"
-        spark = f'<span class="spark">{segs or fallback}</span>'
-        name = e(w)
-        rows.append(
-            f'<div class="wsrow" data-tokens="{info["tokens"]}" data-sessions="{sessions}" '
-            f'data-name="{name.lower()}">'
-            f'<span class="nm" title="{name}">{name}</span>'
-            f'<span class="tk">{fmt(info["tokens"])}</span>'
-            f'<span class="sh">{info["tokens"] / total * 100:.1f}%<small>· {sessions} 会话</small></span>'
-            f'{spark}<span></span></div>'
-        )
-    toolbar = (
-        '<div class="toolbar">'
-        '<span class="mini">按会话</span>'
-        '<span class="mini on">按工作空间</span>'
-        '<input class="wssearch" id="wsSearch" type="search" placeholder="搜索..." '
-        'aria-label="搜索工作空间">'
-        '<span class="spacer"></span>'
-        '<button class="mini on" id="wsSortTok" type="button">按 Token</button>'
-        '<button class="mini" id="wsSortSes" type="button">按会话数</button>'
-        '<span class="mini">3X ⌄</span></div>'
-    )
-    return toolbar + head + f'<div id="wsRows">{"".join(rows)}</div>'
-
-
 def _model_totals_card(summary: Summary, palette: dict[str, str]) -> str:
-    """单模型总量统计：按 Token / 按金额 双口径（CSS 切换），周期跟随全局时间窗口。"""
     if not summary.models:
-        return '<div class="cap">暂无数据</div>'
+        return '<h3>单模型总量统计</h3><div class="cap">暂无数据</div>'
     total_cost = summary.cost_cny or 1.0
     rows = []
     for m in summary.models[:8]:
@@ -517,7 +1118,7 @@ def _model_totals_card(summary: Summary, palette: dict[str, str]) -> str:
                "缓存写入按 1.25× 输入价 · 单价与汇率详见口径页")
     return (
         '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
-        "<h3>单模型总量统计</h3>"
+        '<h3>单模型总量统计</h3>'
         '<div class="seg" id="metricSeg" role="group" aria-label="显示口径切换">'
         '<button type="button" class="on" data-metric-opt="token">按 Token</button>'
         '<button type="button" data-metric-opt="cost">按金额</button></div>'
@@ -527,7 +1128,6 @@ def _model_totals_card(summary: Summary, palette: dict[str, str]) -> str:
 
 
 def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
-    """0—24 时分布 · 按模型：TOP2 平滑面积曲线。"""
     top = summary.models[:2]
     if not top or not any(summary.hourly):
         return '<div class="cap">暂无数据</div>'
@@ -539,8 +1139,7 @@ def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
         series = summary.hourly_by_model.get(model, [0] * 24)
         pts = [(h * step, base - v / peak * (base - 12)) for h, v in enumerate(series)]
         line = _smooth_path(pts)
-        area = f"{line} L{width},{base} L0,{base} Z"
-        return line, area
+        return line, f"{line} L{width},{base} L0,{base} Z"
 
     parts = [f'<svg viewBox="0 0 {width} {base + 34}" role="img" aria-label="0—24 时按模型分布">']
     for frac in (0.2, 0.55):
@@ -552,44 +1151,30 @@ def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
                  'stroke="var(--bds)" stroke-width="1"/>')
     for i, m in enumerate(top):
         line, area = curve(m)
-        color = palette[m]
-        opacity = 0.16 if i == 0 else 0.12
-        parts.append(f'<path d="{area}" fill="{e(color)}" fill-opacity="{opacity}" stroke="none"/>')
-        parts.append(f'<path d="{line}" fill="none" stroke="{e(color)}" stroke-width="2"/>')
+        parts.append(f'<path d="{area}" fill="{e(palette[m])}" '
+                     f'fill-opacity="{0.16 if i == 0 else 0.12}" stroke="none"/>')
+        parts.append(f'<path d="{line}" fill="none" stroke="{e(palette[m])}" stroke-width="2"/>')
     for hour in range(0, 24, 2):
         parts.append(f'<text x="{hour * step + 6:.1f}" y="{base + 22}" fill="var(--t3)" '
                      f'font-size="10">{hour}时</text>')
     parts.append("</svg>")
     legend = "".join(
-        f'<span><i style="background:{e(palette[m])}"></i>{e(m)} · {e(vendor_of(m))}</span>'
-        for m in top
+        f'<span data-dm="{mi}"><i style="background:{e(palette[m])}"></i>{e(m)} · {e(vendor_of(m))}</span>'
+        for mi, m in enumerate(top)
     )
     return f'<div class="legend" style="justify-content:flex-end">{legend}</div>' + "".join(parts)
 
 
-def _curve_y(hist: Sequence[float], value: float, hi: float) -> float:
-    """取分位线落点处的直方图高度（线性插值），让灰点贴在曲线上。"""
-    if hi <= 0 or not hist:
-        return 0.0
-    pos = min(len(hist) - 1.0, max(0.0, value / hi * len(hist)))
-    low = int(pos)
-    high = min(len(hist) - 1, low + 1)
-    frac = pos - low
-    return hist[low] * (1 - frac) + hist[high] * frac
-
-
 def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
-    """单次请求大小分布：左表（次数/50%/90% + 共享刻度对比条）+ 右归一分布曲线。"""
     dist = summary.distribution(top=2)
-    models = [d for d in dist["models"] if d["count"]]
-    if not models:
+    models_ = [d for d in dist["models"] if d["count"]]
+    if not models_:
         return '<div class="cap">暂无数据</div>'
-    cap = max(d["p90"] for d in models) or 1
-
-    head = ('<div class="dhead drow" style="border-bottom:1px solid var(--bd)">'
-            "<span>模型</span><span>次数</span><span>50%</span><span>90%</span></div>")
+    cap = max(d["p90"] for d in models_) or 1
+    head = ('<div class="dhead drow" style="border-bottom:1px solid var(--bd)"><span>模型</span>'
+            '<span>次数</span><span>50%</span><span>90%</span></div>')
     rows = []
-    for d in models:
+    for d in models_:
         color = palette.get(d["name"], "#5FC2A0")
         cells = f'<span class="nm">{e(d["name"])}</span><span class="val">{d["count"]}</span>'
         for key, label_, shade in (("p50", "50%", 0.0), ("p90", "90%", 0.45)):
@@ -602,25 +1187,22 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
             )
         rows.append(f'<div class="drow">{cells}</div>')
     left = head + "".join(rows)
-
-    # 每模型直方图（各自归一），Catmull-Rom 平滑
     width, base = 860, 150
-    hi = _nice_max(max(d["p90"] for d in models) * 1.35)
-    bins = 28
+    hi = _nice_max(cap * 1.35)
+    bins = 36
     hists: dict[str, list[float]] = {}
-    for d in models:
+    for d in models_:
         sizes = summary.model_sizes.get(d["name"], [])
         hist = [0] * bins
         for v in sizes:
-            idx = min(bins - 1, int(v / hi * bins))
-            hist[idx] += 1
+            hist[min(bins - 1, int(v / hi * bins))] += 1
         peak = max(hist) or 1
         hists[d["name"]] = [h / peak for h in hist]
     step = width / bins
     parts = [f'<svg viewBox="0 0 {width} {base + 26}" role="img" aria-label="单次请求大小分布">']
     parts.append(f'<line x1="0" y1="{base}" x2="{width}" y2="{base}" '
                  'stroke="var(--bds)" stroke-width="1"/>')
-    for d in models:
+    for d in models_:
         color = palette.get(d["name"], "#5FC2A0")
         pts = [(i * step + step / 2, base - v * (base - 16))
                for i, v in enumerate(hists[d["name"]])]
@@ -628,10 +1210,18 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
         parts.append(f'<path d="{line} L{width},{base} L0,{base} Z" '
                      f'fill="{e(color)}" fill-opacity="0.14"/>')
         parts.append(f'<path d="{line}" fill="none" stroke="{e(color)}" stroke-width="2"/>')
-        x50 = d["p50"] / hi * width
-        parts.append(f'<line x1="{x50:.1f}" y1="26" x2="{x50:.1f}" y2="{base}" '
+        parts.append(f'<line x1="{d["p50"] / hi * width:.1f}" y1="26" '
+                     f'x2="{d["p50"] / hi * width:.1f}" y2="{base}" '
                      f'stroke="{e(color)}" stroke-width="1.5" stroke-opacity=".8"/>')
-        y90 = base - _curve_y(hists[d["name"]], d["p90"], hi) * (base - 16)
+
+        def curve_y(hist: Sequence[float], value: float) -> float:
+            pos = min(len(hist) - 1.0, max(0.0, value / hi * len(hist)))
+            low = int(pos)
+            high = min(len(hist) - 1, low + 1)
+            frac = pos - low
+            return hist[low] * (1 - frac) + hist[high] * frac
+
+        y90 = base - curve_y(hists[d["name"]], d["p90"]) * (base - 16)
         parts.append(f'<circle cx="{d["p90"] / hi * width:.1f}" cy="{y90:.1f}" r="3.5" fill="#8A9A90"/>')
     gx = dist["global_p50"] / hi * width
     parts.append(f'<line x1="{gx:.1f}" y1="14" x2="{gx:.1f}" y2="{base}" '
@@ -640,9 +1230,8 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
                  f'全局 50% {fmt(dist["global_p50"])}</text>')
     for frac in (0, 1 / 3, 2 / 3, 1):
         anchor = ' text-anchor="end"' if frac == 1 else ""
-        label_ = "0" if frac == 0 else fmt(hi * frac)
         parts.append(f'<text x="{width * frac:.1f}" y="{base + 20}" fill="var(--t3)" '
-                     f'font-size="10"{anchor}>{label_}</text>')
+                     f'font-size="10"{anchor}>{"0" if frac == 0 else fmt(hi * frac)}</text>')
     parts.append("</svg>")
     caption = ("每模型一条分布形状（各自归一）· 实线=该模型 50% · 灰点=90% · 虚线=全局 50% · "
                "数值下条形=两列共享刻度的大小对比（深=50% 浅=90%）")
@@ -653,7 +1242,6 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
 
 
 def _dayhour_card(summary: Summary) -> str:
-    """日活分布：四时段占比卡 + 最近 3 个有数据日 × 24 小时热力图。"""
     if not summary.hour_matrix:
         return '<div class="cap">暂无数据</div>'
     band_total = sum(summary.bands) or 1
@@ -668,6 +1256,7 @@ def _dayhour_card(summary: Summary) -> str:
     width = 24 * (cell + gap)
     row_h, row_gap = 16, 8
     height = len(days) * (row_h + row_gap)
+    heat = HEATMAPS["light"]
     parts = [f'<svg viewBox="0 0 {width} {height + 24}" role="img" aria-label="日 × 小时热力图">']
     for hour in range(24):
         parts.append(f'<text x="{hour * (cell + gap) + 12}" y="12" fill="var(--t3)" '
@@ -684,8 +1273,7 @@ def _dayhour_card(summary: Summary) -> str:
     parts.append("</svg>")
     row_labels = "".join(
         f'<div style="height:{row_h + row_gap}px;display:flex;align-items:center;'
-        f'font-family:var(--mono);font-size:10px;color:var(--t2)">'
-        f'{e(day[5:7])}—{e(day[8:10])}</div>'
+        f'font-family:var(--mono);font-size:10px;color:var(--t2)">{e(day[5:7])}—{e(day[8:10])}</div>'
         for day in days
     )
     swatches = "".join(f'<i style="background:var(--h{i})"></i>' for i in range(7))
@@ -693,6 +1281,54 @@ def _dayhour_card(summary: Summary) -> str:
     body = ('<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
             f'<div style="padding-top:22px">{row_labels}</div><div>{"".join(parts)}</div></div>')
     return f'<div class="chips">{chips}</div>{legend}{body}'
+
+
+def _sources_card(statuses: Sequence[SourceStatus]) -> str:
+    rows = []
+    for s in statuses:
+        pill = ('<span class="pill ok">已验证</span>' if s.verified
+                else '<span class="pill no">未验证</span>')
+        note = e(s.note) if s.note else ("" if s.verified else "本机没有真实日志可供核对")
+        root = e(s.roots[0]) if s.roots else "—"
+        rows.append(
+            f'<tr><td style="color:var(--t1);font-weight:600">{e(s.display_name)}</td>'
+            f'<td class="mono">{root}</td><td class="mono">{s.file_count}</td>'
+            f'<td>{pill}</td><td style="font-size:10.5px">{note}</td></tr>'
+        )
+    live = ('<span class="livedot"></span><span style="font-size:10px;color:var(--t2)">'
+            "本机日志已连接</span>") if any(s.verified for s in statuses) else ""
+    table = (
+        "<table><thead><tr><th>平台</th><th>默认路径</th><th>文件</th><th>状态</th>"
+        "<th>说明</th></tr></thead><tbody>"
+        + ("".join(rows) or '<tr><td colspan="5">未指定数据源</td></tr>')
+        + "</tbody></table>"
+    )
+    return f'<div style="position:absolute;right:22px;top:16px">{live}</div>' + table
+
+
+def _workspace_card(summary: Summary) -> str:
+    """静态首屏的工作空间行（JS 加载后会按当前窗口重绘并接管点击）。"""
+    if not summary.by_workspace:
+        return '<div class="cap">暂无数据</div>'
+    total = summary.total_tokens or 1
+    full = _ws_order(summary)
+    head = ('<div class="wshead"><span>工作空间</span><span>Token</span><span>占比 / 会话</span>'
+            '<span>分布（近 7 个有数据日）</span><span></span></div>')
+    rows = []
+    for idx, w in enumerate(full[:7]):
+        info = summary.by_workspace[w]
+        sessions = len(summary.ws_sessions.get(w, ()))
+        segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 3
+        name = e(w)
+        rows.append(
+            f'<div class="wsrow click" data-ws="{idx}">'
+            f'<span class="nm" title="{name}">{name}</span>'
+            f'<span class="tk">{fmt(info["tokens"])}</span>'
+            f'<span class="sh">{info["tokens"] / total * 100:.1f}%'
+            f'<small>· {sessions} 会话</small></span>'
+            f'<span class="wviz">{segs}</span><span class="chev">›</span></div>'
+        )
+    return head + "".join(rows)
 
 
 # ------------------------------------------------------------------ 入口
@@ -707,8 +1343,15 @@ def render_html(
     generated: str | None = None,
     window_note: str = "",
     window_label: str = "近 30 天",
+    window_days: int | None = None,
+    custom_range: tuple[int | None, int | None] | None = None,
+    prices: dict | None = None,
 ) -> str:
-    """渲染完整的单文件 HTML；不访问网络、不写文件。"""
+    """渲染完整的单文件 HTML；不访问网络、不写文件。
+
+    ``window_days`` / ``custom_range`` / ``prices`` 会随请求级明细一起嵌入页面，
+    供 JS 端在浏览器内重新聚合（周期切换 / 下钻）。
+    """
     generated = generated or datetime.now().strftime("%Y-%m-%d %H:%M")
     kpi = summary.kpi()
     palette = palette_for(summary.models)
@@ -728,24 +1371,18 @@ def render_html(
     s1_note = f"{e(window_label)}&ensp;·&ensp;{kpi['active_days']} 个有数据日"
 
     periods = []
-    for lbl in ("1 天", "3 天", "近 7 天", "近 30 天"):
-        on = ' class="on"' if lbl == window_label else ""
-        periods.append(f"<span{on}>{e(lbl)}</span>")
-    if window_label not in ("1 天", "3 天", "近 7 天", "近 30 天"):
-        periods.append(f'<span class="on">{e(window_label)}</span>')
+    known = {"1 天": 1, "3 天": 3, "近 7 天": 7, "近 30 天": 30}
+    for lbl, wv in known.items():
+        on = ' class="ppill on"' if lbl == window_label else ' class="ppill"'
+        periods.append(f'<button{on} data-w="{wv}">{lbl}</button>')
+    if window_label not in known:
+        periods.append(f'<button class="ppill on" data-w="-1">{e(window_label)}</button>')
     period_pills = "".join(periods)
 
-    distribution_section = (
-        '<div class="card"><h3>工作空间活跃分布</h3>'
-        + _workspace_card(records, summary) + "</div>"
-        + '<div class="card">' + _model_totals_card(summary, palette) + "</div>"
-        + '<div class="card"><h3>0—24 时分布 · 按模型</h3>' + _hourly_card(summary, palette) + "</div>"
-        + '<div class="card"><h3>单次请求大小分布&ensp;<span class="hdnote">'
-        f'TOP {min(2, len(summary.models))} 模型 · 共 {summary.records:,} 次</span></h3>'
-        + _request_size_card(summary, palette) + "</div>"
-        + '<div class="card"><h3>日活分布&ensp;<span class="hdnote">色深代表当日该小时的消耗强度</span></h3>'
-        + _dayhour_card(summary) + "</div>"
-    )
+    payload = _payload(summary, records, palette, prices, generated,
+                       window_days, custom_range)
+    data_js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    data_js = data_js.replace("</", "<\\/")  # 防止日志内容提前闭合 <script>
 
     footer = (
         f"生成时间 {e(generated)} · 数据来自本机会话日志，不外发、无外部依赖<br>"
@@ -760,11 +1397,14 @@ def render_html(
     css = (
         _CSS.replace("__SANS__", _SANS)
         .replace("__MONO__", _MONO)
-        .replace("__LIGHT__", _vars(GREEN_LIGHT))
-        .replace("__DARK__", _vars(GREEN_DARK))
-        .replace("__HEAT_L__", _heat_vars("light"))
-        .replace("__HEAT_D__", _heat_vars("dark"))
+        .replace("__LIGHT_CSS__", _vars(GREEN_LIGHT))
+        .replace("__DARK_CSS__", _vars(GREEN_DARK))
+        .replace("__HEAT_L_CSS__", _heat_css("light"))
+        .replace("__HEAT_D_CSS__", _heat_css("dark"))
     )
+    script_js = (_SCRIPT
+                 .replace("__HEAT_L_JS__", _heat_json("light"))
+                 .replace("__HEAT_D_JS__", _heat_json("dark")))
     replacements = {
         "__TITLE__": e(title),
         "__SUBTITLE__": subtitle,
@@ -783,9 +1423,14 @@ def render_html(
         "__MODELS__": _model_card(summary, palette),
         "__DAILY__": _daily_card(records, summary, palette),
         "__SOURCES__": _sources_card(statuses),
-        "__DISTRIBUTION__": distribution_section,
+        "__MODEL_TOTALS__": _model_totals_card(summary, palette),
+        "__HOURLY__": _hourly_card(summary, palette),
+        "__REQDIST__": _request_size_card(summary, palette),
+        "__DAYHOUR__": _dayhour_card(summary),
+        "__WORKSPACES__": _workspace_card(summary),
         "__FOOTER__": footer,
-        "__SCRIPT__": _SCRIPT,
+        "__DATA__": data_js,
+        "__SCRIPT__": script_js,
     }
     output = _TEMPLATE
     for key, value in replacements.items():
