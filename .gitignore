@@ -21,6 +21,18 @@ tokenboard.html
 !tests/fixtures/*.jsonl
 tests/fixtures/_prices.json
 
+# token 消耗统计：只在本地、每次重新统计，绝不提交
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+!tests/fixtures/*.db
+tokenboard-*.html
+*-tokenboard.html
+usage-*.json
+usage-*.csv
+
 # 编辑器 / 系统
 .DS_Store
 .idea/
