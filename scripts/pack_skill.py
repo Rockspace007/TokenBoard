@@ -46,7 +46,7 @@ def main() -> int:
         for source, arcname in members:
             tar.add(source, arcname=arcname, filter=_exclude)
     print(f"已打包 {out}  ({out.stat().st_size / 1024:.1f} KB)")
-    print("安装：mkdir -p ~/.workbuddy/skills/tokenboard && tar -xzf <tgz> -C ~/.workbuddy/skills --strip-components=1")
+    print("安装：mkdir -p ~/.workbuddy/skills && tar -xzf <tgz> -C ~/.workbuddy/skills")
     return 0
 
 
