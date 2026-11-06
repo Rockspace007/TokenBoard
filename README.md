@@ -1,52 +1,76 @@
 # TokenBoard
 
-> 多平台 LLM Token 消耗看板 · 绿色系 UI + 模型厂商品牌色 · 零第三方依赖 · 数据不出本机
+> 多平台 LLM Token 消耗看板 · 单文件离线 HTML · **可点击交互** · 零第三方依赖 · 数据不出本机
 
 把 WorkBuddy、Claude Code、Codex、Trae、OpenCode 等平台的**请求级真实 usage**
-统一成一张单文件离线 HTML 看板。Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
+统一成一张单文件 HTML 看板：结论先行、可逐级下钻到每一次请求。
+Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
 
-![theme](https://img.shields.io/badge/theme-green%20%2B%20brand--colors-1F6F63)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
+![tests](https://img.shields.io/badge/tests-48%20passing-brightgreen)
+![license](https://img.shields.io/badge/license-MIT-green)
 
-## 为什么又做一个
+## 特性
 
-现有看板通常只认一个平台的日志、把所有图表等权平铺。TokenBoard 解决三件事：
+- **结论优先**：先回答「花了多少 / 命中多少 / 花在哪」，再给补充指标、构成、时间、分布四层下钻。
+- **多平台统一**：一个 `UsageRecord` 契约吃下 6 类日志；新增平台只写一个 adapter（四步法见文档）。
+- **页面可交互**：周期胶囊与日期范围**真切换**（请求级明细嵌入页面，JS 按同一口径重算）、
+  工作空间 → 会话 → 请求三级下钻、模型点选聚焦、跟随式悬浮明细、单文件离线全都有。
+- **诚实**：未用真实日志验证的平台明确标「未验证」、不参与默认扫描；
+  窗口内只有部分天数有数据时，结论条直接说明，空窗不摊薄日均。
+- **零依赖**：运行期只用 Python 标准库；HTML 无 CDN、无 fetch、无外部字体。
 
-1. **多平台统一**：一个 `UsageRecord` 契约吃下 6 类日志，新增平台只写一个 adapter。
-2. **结论优先**：先给「花了多少 / 命中多少 / 花在哪」，再给构成、时间、模型三层下钻。
-3. **诚实**：未用真实数据验证的平台明确标「未验证」、不参与默认扫描；
-   「近 30 天」窗口只有 3 天数据时会在结论条上直说，空窗不摊薄日均。
+## 看板里有什么
 
-**配色规则**：绿色系只用于 UI 框架（`bg #0E1A16` / `brand #1F6F63`），
-模型厂商品牌色只用于数据系列，且永远附文字标签。详见 [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md)。
+| 分区 | 内容 |
+|---|---|
+| 结论条 + KPI | 合计 Token · 请求次数 · 预估金额 · 折合单价；缓存命中率、请求轮次 |
+| 01 补充指标 | 日均（有数据天）/ 会话 / 输入输出比 |
+| 02 模型与品牌色 | 按模型消耗（同厂商明度阶梯）、每日按模型堆叠柱 |
+| 03 数据源状态 | 各平台日志目录、文件数、已验证/未验证 |
+| 04 使用分布与时间节律 | 工作空间活跃分布（可搜索/排序）· 单模型总量统计（按 Token/按金额切换）· 0—24 时分布·按模型（平滑曲线）· 单次请求大小分布（p50/p90 + 全局 50% 基准）· 日活分布（时段占比 + 日×时热力图） |
 
-## 两个版本
+主题：浅色（白底荧光绿）默认，深色「暗夜玻璃」页面内一键切换并记忆。
+配色规则：绿色系只用于 UI 框架，模型厂商品牌色只用于数据系列且永远附文字标签，
+全表见 [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md)。
 
-用户要的「agent tool 版」和「skill 版」**是同一仓库的两个入口，不是两份代码**，
-因此统计口径、价格表、品牌色只维护一份。
+## 快速开始
 
-| 版本 | 安装 | 给谁用 | 入口 |
-|---|---|---|---|
-| **agent tool** | `pip install -e .` | 人 / AI Agent | `tokenboard ...`（CLI）、`tokenboard serve-mcp`（MCP Server） |
-| **Skill** | `git clone <repo> ~/.workbuddy/skills/tokenboard` | WorkBuddy 对话 | `SKILL.md` → `scripts/gen_dashboard.py` |
-
-### 快速开始 · agent tool
+### 方式一 · pip 安装（CLI / MCP）
 
 ```bash
-git clone <your-repo-url> tokenboard && cd tokenboard
-pip install -e .                       # 或：export PYTHONPATH="$PWD/src"
+pip install git+https://github.com/your-name/tokenboard.git
 
 tokenboard platforms                   # 看本机有哪些平台日志
-tokenboard scan                        # 生成 ./tokenboard.html
-tokenboard scan --since 7d --theme light --out week.html
-tokenboard scan --format json           # 结构化输出，给脚本/Agent 用
-tokenboard probe --path ~/some/logs     # 新平台接入前先看字段命中率
+tokenboard scan                        # 生成 ./tokenboard.html（近 30 天）
+tokenboard scan --since 7d --out week.html
+tokenboard scan --format json          # 结构化输出，给脚本 / Agent 用
+tokenboard probe --path ~/some/logs    # 新平台接入前先看字段命中率
 ```
 
-### 快速开始 · MCP Server
+或克隆源码运行（不装包）：
 
-在 MCP client 配置里加（路径换成你的绝对路径）：
+```bash
+git clone https://github.com/your-name/tokenboard.git && cd tokenboard
+PYTHONPATH=src python -m tokenboard scan
+```
+
+### 方式二 · WorkBuddy Skill（对话内使用）
+
+```bash
+# 方式 A：Release 下载（免 clone）
+#   从 GitHub Releases 下载 tokenboard-skill.tgz，然后：
+mkdir -p ~/.workbuddy/skills
+tar -xzf tokenboard-skill.tgz -C ~/.workbuddy/skills
+
+# 方式 B：直接 clone（整个仓库即合法 Skill）
+git clone https://github.com/your-name/tokenboard.git ~/.workbuddy/skills/tokenboard
+```
+
+重启 WorkBuddy 会话后，说「看看我的 token 用量」「生成本周消耗看板」即可触发。
+
+### 方式三 · MCP Server（给 AI Agent 用）
 
 ```json
 {
@@ -61,37 +85,7 @@ tokenboard probe --path ~/some/logs     # 新平台接入前先看字段命中�
 ```
 
 暴露 4 个工具：`tokenboard_scan` / `tokenboard_render` / `tokenboard_platforms` / `tokenboard_brands`。
-传输是 stdio、每行一个 JSON-RPC 消息，零依赖手写，不监听端口。协议见 [`docs/CONTRACT.md`](docs/CONTRACT.md)。
-
-### 快速开始 · Skill
-
-```bash
-# 方式一：整个仓库即合法 Skill
-git clone <your-repo-url> ~/.workbuddy/skills/tokenboard
-
-# 方式二：只装最小包
-python scripts/pack_skill.py            # 产出 dist/tokenboard-skill.tgz
-```
-
-重启 WorkBuddy 会话后，说「看看我的 token 用量」即可触发。
-注意 Skill 目录必须包含 `src/`，只复制 `SKILL.md` 会半安装并给出明确报错。
-
-## 平台支持矩阵
-
-| 平台 | 参数 | 本机验证 | 说明 |
-|---|---|---|---|
-| WorkBuddy | `--platform workbuddy` | ✅ 已用真实日志验证 | `providerData.rawUsage`；子代理归属父会话 |
-| Claude Code | `--platform claude_code` | ❌ 未验证 | `message.usage.*`；本机未安装 |
-| OpenAI Codex CLI | `--platform codex` | ❌ 未验证 | `token_count` 增量事件；已排除累计值 |
-| Trae / TraeCode | `--platform trae` | ❌ 未验证 | 本机 `~/.trae-cn` 下只有会话记忆，无 usage 字段 |
-| OpenCode | `--platform opencode` | ❌ 未验证 | 支持整文件 JSON 与 jsonl |
-| 任意目录 | `--path <dir\|file>` | — | 通用字段探测 |
-
-> 「未验证」= 本项目没用该平台真实日志跑通过，**不等于不支持**。
-> 只有已验证平台参与无参数自动扫描，避免把配置目录当日志扫。
-> 接入新平台的四步法见 [`docs/ADAPTERS.md`](docs/ADAPTERS.md)。
-
-别名：`claudecode`、`claude-code` → `claude_code`；`treacode`、`traecode` → `trae`。
+传输为 stdio JSON-RPC，零依赖手写，不监听端口。协议见 [`docs/CONTRACT.md`](docs/CONTRACT.md)。
 
 ## 常用参数
 
@@ -99,25 +93,42 @@ python scripts/pack_skill.py            # 产出 dist/tokenboard-skill.tgz
 |---|---|
 | `--platform` | 只扫指定平台，可重复 |
 | `--path` | 自定义日志目录/文件；给定后忽略 `--platform` |
-| `--since 7d` / `--until 2026-11-05` | 时间窗，支持 `YYYY-MM-DD` 与 `Nd` |
+| `--since 7d` / `--until 2026-11-05` | 时间窗，支持 `YYYY-MM-DD` 与 `Nd`；页面内仍可切换周期 |
 | `--out` | 输出路径，HTML 默认 `tokenboard.html` |
 | `--format html\|json\|table` | 输出形态 |
-| `--theme dark\|light` | 深绿 / 浅绿 |
+| `--theme dark\|light` | light=白底荧光绿（默认）/ dark=暗夜玻璃，页面内可切换 |
 | `--prices <json>` | 覆盖牌价：`{"glm":[2,8,0.4]}` |
-| `--window-note` | 写在结论条上的数据覆盖提示 |
+| `--title` / `--window-note` | 自定义标题 / 结论条数据覆盖提示 |
 
 子命令：`scan`（默认）、`platforms`、`brands`、`probe`、`serve-mcp`。
+
+## 平台支持矩阵
+
+| 平台 | 参数 | 本机验证 | 说明 |
+|---|---|---|---|
+| WorkBuddy | `--platform workbuddy` | ✅ 已用真实日志验证 | `providerData.rawUsage`；子代理归属父会话 |
+| Claude Code | `--platform claude_code` | ❌ 未验证 | `message.usage.*` |
+| OpenAI Codex CLI | `--platform codex` | ❌ 未验证 | `token_count` 增量事件；已排除累计值 |
+| Trae / TraeCode | `--platform trae` | ❌ 未验证 | 本机仅有会话记忆，无 usage 字段 |
+| OpenCode | `--platform opencode` | ❌ 未验证 | 支持整文件 JSON 与 jsonl |
+| 任意目录 | `--path <dir\|file>` | — | 通用字段探测 |
+
+> 「未验证」= 本项目没用该平台真实日志跑通过，**不等于不支持**。
+> 只有已验证平台参与无参数自动扫描，避免把配置目录当日志扫。
+> 欢迎带脱敏样例提 PR，接入四步法见 [`docs/ADAPTERS.md`](docs/ADAPTERS.md)。
+> 别名：`claudecode` / `claude-code` → `claude_code`；`treacode` / `traecode` → `trae`。
 
 ## 测试与验证
 
 ```bash
-python -m unittest discover -s tests -v        # 43 个用例
+python -m unittest discover -s tests -v        # 48 个用例
 python scripts/smoke_mcp.py                    # MCP 握手端到端
-python -m tokenboard scan --format table       # 真实数据冒烟
+python -m tokenboard scan --path tests/fixtures/workbuddy.jsonl --format table
 python -m tokenboard probe --path <日志目录>   # 字段命中率
 ```
 
-CI 在 Ubuntu / macOS / Windows × Python 3.10–3.13 上跑同一套测试与 MCP 自检。
+CI 在 Ubuntu / macOS / Windows × Python 3.10–3.13 上跑同一套测试、CLI 冒烟、
+MCP 握手与 Skill 打包；打 `v*` tag 会自动把 Skill 包挂到 GitHub Releases。
 
 ## 文档
 
@@ -126,23 +137,26 @@ CI 在 Ubuntu / macOS / Windows × Python 3.10–3.13 上跑同一套测试与 M
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 分层、数据流、技术选型对比、dev/prod 差异、风险 |
 | [`docs/ADAPTERS.md`](docs/ADAPTERS.md) | 平台接入四步法、字段探测优先级、常见坑 |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | UsageRecord、计价口径、Summary JSON、MCP 协议 |
-| [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md) | 绿色主题令牌与厂商品牌色全表 |
-| [`docs/DESKTOP_PET_FEASIBILITY.md`](docs/DESKTOP_PET_FEASIBILITY.md) | 桌宠可行性：三个上游仓库调研、三条路线对比、架构与风险 |
-
-## 路线图
-
-- [x] 多平台适配、绿色色调 + 品牌色、CLI + MCP、Skill、测试与文档
-- [ ] 用真实日志验证 Claude Code / Codex / Trae / OpenCode（欢迎带脱敏样例提 PR）
-- [ ] 流式聚合，支撑十万级以上请求
-- [ ] 桌宠 P0（Web Widget）→ P1（Tauri 独立桌宠），见可行性报告
+| [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md) | 双主题令牌与厂商品牌色全表 |
+| [`docs/DESKTOP_PET_FEASIBILITY.md`](docs/DESKTOP_PET_FEASIBILITY.md) | 桌宠可行性调研与路线对比 |
 
 ## 隐私与免责
 
 - 只读取 usage、时间戳、模型名、会话 ID、工作空间目录名；**不读取也不输出消息正文**。
 - 生成的 HTML 完全离线：无 CDN、无 fetch、无外部字体；主题偏好存 localStorage。
+- **注意**：交互版把请求级明细（时间/模型/输入输出/缓存）嵌入 HTML 以支持页内下钻，
+  把文件分享出去即等于分享这部分明细；对外分发前请确认，或改用 `--format json|table` 汇报。
 - 金额是按内置**牌价**的粗略估算，不是账单；不同套餐请用 `--prices` 覆盖。
-- 本项目与 DeepSeek / Anthropic / OpenAI / 字节 / WorkBuddy 等厂商无隶属关系，
+- 本项目与 DeepSeek / Anthropic / OpenAI / 腾讯 / WorkBuddy 等厂商无隶属关系，
   模型品牌色仅作数据区分用途。
+
+## 路线图
+
+- [x] 多平台适配、双主题 + 品牌色、CLI + MCP + Skill、测试与文档
+- [x] 页内交互引擎：周期/日期切换、三级下钻、模型聚焦、悬浮明细
+- [ ] 用真实日志验证 Claude Code / Codex / Trae / OpenCode（欢迎带脱敏样例提 PR）
+- [ ] 流式聚合，支撑十万级以上请求
+- [ ] 桌宠 P0（Web Widget）→ P1（Tauri 独立桌宠），见可行性报告
 
 ## License
 

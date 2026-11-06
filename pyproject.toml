@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tokenboard"
-version = "0.1.0"
+version = "0.3.0"
 description = "多平台 LLM Token 消耗看板：绿色系主题 + 模型厂商品牌色，零第三方依赖、单文件离线 HTML"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "TokenBoard contributors" }]
 keywords = ["token", "usage", "dashboard", "llm", "mcp", "workbuddy"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",

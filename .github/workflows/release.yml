@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Pack skill bundle
+        run: python scripts/pack_skill.py --out dist/tokenboard-skill.tgz
+
+      - name: Create GitHub release with skill bundle
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/tokenboard-skill.tgz
+          generate_release_notes: true
