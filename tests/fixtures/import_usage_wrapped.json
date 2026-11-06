@@ -1,0 +1,19 @@
+{
+  "records": [
+    {
+      "meta": {"ts": 1793527200000},
+      "usage": {"in": 10, "out": 5},
+      "model_name": "deepseek-custom",
+      "chat": {"id": "s-1"},
+      "ws": "proj-a"
+    },
+    {
+      "meta": {"ts": "2026-11-02T03:00:00Z"},
+      "usage": {"in": null, "out": 7},
+      "total": 27,
+      "model_name": "deepseek-custom",
+      "chat": {"id": "s-2"},
+      "ws": "proj-a"
+    }
+  ]
+}

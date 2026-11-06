@@ -22,8 +22,23 @@ from . import __version__
 from .aggregate import summarize
 from .brands import BRAND_COLORS, THEMES
 from .pricing import load_prices
-from .registry import all_adapters, names, scan
+from .registry import ScanResult, all_adapters, names, scan
 from .render import render_html, summary_json
+
+
+def mapping_pair(text: str) -> tuple[str, str]:
+    """解析 ``--map FIELD=SOURCE``；FIELD 必须是 UsageRecord 字段名。"""
+    from .adapters.external import MAPPING_FIELDS
+
+    field, sep, source = text.partition("=")
+    field, source = field.strip(), source.strip()
+    if not sep or not field or not source:
+        raise argparse.ArgumentTypeError(f"字段映射应为 FIELD=SOURCE，收到 {text!r}")
+    if field not in MAPPING_FIELDS:
+        raise argparse.ArgumentTypeError(
+            f"未知字段 {field!r}；可选：{', '.join(sorted(MAPPING_FIELDS))}"
+        )
+    return field, source
 
 
 def parse_date(text: str) -> int:
@@ -77,6 +92,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--title", default="TokenBoard · 消耗洞察")
     s.add_argument("--window-note", default="", help="写在结论条上的数据覆盖提示")
 
+    im = sub.add_parser("import", help="导入外部 CSV / JSON 用量文件（字段映射可配）")
+    im.add_argument("files", nargs="+", help="CSV / JSON / JSONL 文件或目录")
+    im.add_argument(
+        "--map", dest="maps", action="append", type=mapping_pair, metavar="FIELD=SOURCE",
+        help="字段映射，可重复；如 --map input_tokens=prompt_tokens --map ts=created_at",
+    )
+    im.add_argument("--platform", default="external", help="记录归属平台，默认 external；导入 Trae 导出可传 trae")
+    im.add_argument(
+        "--records", metavar="PATH",
+        help="JSON 记录数组所在的点分路径（如 data.items）；默认自动探测 records/data/items/usages",
+    )
+    im.add_argument("--format", choices=("table", "json", "html"), default="table")
+    im.add_argument("--out", help="输出文件路径；html 默认 dist/tokenboard-import.html")
+    im.add_argument("--theme", choices=("dark", "light"), default="light")
+    im.add_argument("--prices", help="自定义价格表 JSON")
+    im.add_argument("--title", default="TokenBoard · 外部用量导入")
+    im.add_argument("--window-note", default="外部用量文件导入 · 非实时扫描")
+
     sub.add_parser("platforms", help="列出平台适配器与本机动静状态")
     sub.add_parser("brands", help="列出模型厂商品牌色映射")
     pr = sub.add_parser("probe", help="探测自定义日志的字段命中率（新平台接入第一步）")
@@ -87,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _table(summary, result) -> str:
     k = summary.kpi()
+    if k["cache_hit_known"]:
+        cache_text = f"{k['cache_hit_rate']:>15.2f}%"
+    elif k["cache_unknown_records"]:
+        cache_text = f"{'不可算':>14}（缓存字段缺失）"
+    else:
+        cache_text = f"{0.0:>15.2f}%"
     lines = [
         f"TokenBoard {__version__}  |  记录 {k['requests']:,} 条  |  平台 {len(summary.platforms)} 个",
         "-" * 62,
@@ -94,7 +133,7 @@ def _table(summary, result) -> str:
         f"日均            {summary.daily_average:>16,.1f}",
         f"会话 / 工作空间 {k['sessions']:>8,} / {k['workspaces']:<6}",
         f"输入 / 输出比   {k['input_output_ratio']:>16.2f} : 1",
-        f"缓存命中率      {k['cache_hit_rate']:>15.2f}%",
+        f"缓存命中率      {cache_text}",
         f"预估金额        ¥{k['estimated_cost_cny']:>15.2f}",
         f"折合单价        ¥{k['price_per_million_cny']:>13.2f} / 百万",
         "-" * 62,
@@ -109,6 +148,46 @@ def _table(summary, result) -> str:
     if result.errors:
         lines.append("警告：" + "; ".join(result.errors))
     return "\n".join(lines)
+
+
+def _emit(args: argparse.Namespace, result, summary, default_html: str) -> int:
+    """scan / import 共用的输出逻辑：JSON、表格或 HTML 看板。"""
+    since = getattr(args, "since", None)
+    until = getattr(args, "until", None)
+    prices = load_prices(getattr(args, "prices", None))
+    if args.format == "json":
+        text = summary_json(summary, result.statuses)
+    elif args.format == "table":
+        text = _table(summary, result)
+    else:
+        label = window_label(since)
+        note = getattr(args, "window_note", "")
+        if not note:
+            expected = window_days(since)
+            if expected and summary.active_days and summary.active_days < expected:
+                note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
+                        "日均按有数据日计算，空窗不计入")
+        text = render_html(
+            summary, result.records, result.statuses,
+            theme_name=getattr(args, "theme", "light"),
+            title=getattr(args, "title", "TokenBoard · 消耗洞察"),
+            window_note=note,
+            window_label=label,
+            window_days=window_days(since),
+            custom_range=(since, until)
+            if (until or (since and window_days(since) is None)) else None,
+            prices=prices,
+        )
+
+    out = args.out or (default_html if args.format == "html" else None)
+    if out:
+        target = Path(out).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        print(f"已写入 {target}  |  {summary.records} 条记录  |  {len(text):,} 字符", file=sys.stderr)
+    else:
+        print(text)
+    return 0 if not result.errors else 1
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -129,37 +208,33 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     prices = load_prices(args.prices)
     summary = summarize(result.records, prices)
-    if args.format == "json":
-        text = summary_json(summary, result.statuses)
-    elif args.format == "table":
-        text = _table(summary, result)
-    else:
-        label = window_label(args.since)
-        note = args.window_note
-        if not note:
-            expected = window_days(args.since)
-            if expected and summary.active_days and summary.active_days < expected:
-                note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
-                        "日均按有数据日计算，空窗不计入")
-        text = render_html(
-            summary, result.records, result.statuses,
-            theme_name=args.theme, title=args.title, window_note=note,
-            window_label=label,
-            window_days=window_days(args.since),
-            custom_range=(args.since, args.until)
-            if (args.until or (args.since and window_days(args.since) is None)) else None,
-            prices=prices,
-        )
+    return _emit(args, result, summary, "tokenboard.html")
 
-    out = args.out or ("tokenboard.html" if args.format == "html" else None)
-    if out:
-        target = Path(out).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-        print(f"已写入 {target}  |  {summary.records} 条记录  |  {len(target.read_text(encoding='utf-8')):,} 字符", file=sys.stderr)
-    else:
-        print(text)
-    return 0 if not result.errors else 1
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """导入外部 CSV / JSON 用量文件；字段映射通过 --map 可配。"""
+    from .adapters.external import ExternalAdapter
+
+    adapter = ExternalAdapter(
+        paths=[Path(p).expanduser() for p in args.files],
+        platform=args.platform,
+        mapping=dict(args.maps or []),
+        records_path=args.records,
+    )
+    files = adapter.discover()
+    if not files:
+        print(f"[error] 未找到可导入的 CSV/JSON 文件：{', '.join(args.files)}", file=sys.stderr)
+        return 2
+
+    records = list(adapter.iter_all_records())
+    result = ScanResult(records=records, statuses=[adapter.status()])
+    for error in result.errors:
+        print(f"[warn] {error}", file=sys.stderr)
+    if not records:
+        print("[warn] 文件中没有可归一化的 usage 记录；检查列名或 --map 映射。", file=sys.stderr)
+
+    summary = summarize(records, load_prices(args.prices))
+    return _emit(args, result, summary, "dist/tokenboard-import.html")
 
 
 def cmd_platforms(_args: argparse.Namespace) -> int:
@@ -230,6 +305,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 COMMANDS = {
     "scan": cmd_scan,
+    "import": cmd_import,
     "platforms": cmd_platforms,
     "brands": cmd_brands,
     "probe": cmd_probe,

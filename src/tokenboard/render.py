@@ -147,6 +147,19 @@ align-items:center;padding:9px 0;border-bottom:1px solid var(--bd);font-size:10.
 .wsrow .sh{color:var(--brandb);font-family:var(--mono)}
 .wsrow .sh small{color:var(--t3);margin-left:4px}
 .wsrow .chev{color:var(--t3);text-align:center}
+.strow{display:grid;grid-template-columns:minmax(180px,1.8fr) 86px minmax(130px,1fr) 110px 128px;
+gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--bd);font-size:10.5px}
+.strow:last-child{border-bottom:none}
+.strow.click{cursor:pointer}
+.strow.click:hover{background:var(--surface2)}
+.strow .nm{color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strow .tk{font-family:var(--mono);color:var(--t1);font-variant-numeric:tabular-nums}
+.strow .sh{color:var(--brandb);font-family:var(--mono)}
+.strow .sh small{color:var(--t3);margin-left:4px}
+.strow .wsn{color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strow .plat{font-family:var(--mono);font-size:9.5px;color:var(--brandb)}
+.ptag{display:inline-block;font-size:9px;color:var(--brandb);border:1px solid var(--bds);
+border-radius:5px;padding:1px 5px;margin-left:6px;vertical-align:middle;font-family:var(--mono)}
 .wviz{display:flex;gap:2px;height:9px;align-items:stretch}
 .wviz i{flex:1;border-radius:2px}
 /* ---- 指标切换（按 Token / 按金额） ---- */
@@ -208,6 +221,7 @@ _TEMPLATE = r"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <div class="twin" id="periodPills">__PERIODS__</div>
 <div class="drange"><input type="date" id="dStart" aria-label="起始日期">至
 <input type="date" id="dEnd" aria-label="结束日期"></div>
+<select class="mini" id="platSel" aria-label="平台筛选">__PLATOPTS__</select>
 <button class="chip" id="themeBtn">深色</button>
 <button class="chip" onclick="window.print()">导出 PDF</button></div></div>
 __HERO__
@@ -239,6 +253,9 @@ __HERO__
 <option value="3" selected>3X</option><option value="4">4X</option>
 <option value="6">6X</option><option value="8">8X</option></select></div></div>
 <div id="wsPanel">__WORKSPACES__</div></div>
+<div class="card"><h3>会话消耗 Top 10</h3>
+<span class="hdnote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
+<div id="sessionTop">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
 <div class="card"><h3>0—24 时分布 · 按模型</h3>
 <span class="hdnote">点击图例聚焦单个模型</span><div id="hourChart">__HOURLY__</div></div>
@@ -259,11 +276,12 @@ var $=function(s){return document.querySelector(s)};
 var HEAT_L=__HEAT_L_JS__,HEAT_D=__HEAT_D_JS__;
 var DARK=document.body.dataset.theme==='dark',HEAT=DARK?HEAT_D:HEAT_L;
 var models=D.models||[],PAL=D.palette||[],VENDOR=D.vendor||[],PRICE=D.prices||[];
-var WS=D.workspaces||[],SESS=D.sessions||[];
+var WS=D.workspaces||[],SESS=D.sessions||[],PLAT=D.platforms||[];
 var genMin=D.genMin||0;
 var win=(D.win!=null?D.win:30),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
 if(D.custom)win=0;
 var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
+var platFilter=-1;
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -313,6 +331,7 @@ function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=
   return '#'+o.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');}
 function winLabel(){return win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口';}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
+function plabel(pi){return PLAT[pi]||'';}
 function cutLo(){return win?genMin-win*1440:(cLo||0);}
 function cutHi(){return (!win&&cHi)?cHi:Infinity;}
 function inWin(tsMin){return tsMin>=cutLo()&&tsMin<cutHi();}
@@ -327,7 +346,8 @@ function aggregate(){
     daily:{},dm:{},mt:new Array(models.length).fill(0),
     hb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
   for(var si=0;si<SESS.length;si++){
-    var s=SESS[si],st=0,sn=0,first=0,last=0,rs=[];
+    var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
+    var st=0,sn=0,first=0,last=0,rs=[];
     for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];
       if(r[0]<lo||r[0]>=hi)continue;rs.push(r);
       var d=new Date(r[0]*60000),dk=fm(d),h=d.getHours();
@@ -348,9 +368,11 @@ function aggregate(){
   A.gp50=pctile(A.all,50);
   A.costModel=new Array(models.length).fill(0);
   A.turnsPerModel=new Array(models.length).fill(0);
-  for(var k=0;k<SESS.length;k++)for(var j=0;j<SESS[k].r.length;j++){
+  for(var k=0;k<SESS.length;k++){
+    if(platFilter>=0&&SESS[k].p!==platFilter)continue;
+    for(var j=0;j<SESS[k].r.length;j++){
     var rr=SESS[k].r[j];if(!inWin(rr[0]))continue;
-    A.costModel[rr[1]]+=cost(rr);A.turnsPerModel[rr[1]]++;}
+    A.costModel[rr[1]]+=cost(rr);A.turnsPerModel[rr[1]]++;}}
   return A;
 }
 
@@ -658,7 +680,8 @@ function renderPanel(A){
   var days=Object.keys(A.hm).sort().slice(-7);
   var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
   var whd={};
-  SESS.forEach(function(s){if(state.ws!==null&&s.w!==state.ws)return;
+  SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
+    if(state.ws!==null&&s.w!==state.ws)return;
     for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];if(!inWin(r[0]))continue;
       var d=new Date(r[0]*60000),dk=fm(d);
       (whd[s.w]=whd[s.w]||{});(whd[s.w][dk]=whd[s.w][dk]||new Array(24).fill(0));
@@ -674,7 +697,7 @@ function renderPanel(A){
         +'<span>占比 / 轮次</span><span>分布（近 7 个有数据日）</span><span></span></div>'
         +sr.map(function(x){return rowHtml('data-si="'+x.i+'" data-tokens="'+x.tt
           +'" data-sessions="'+x.tn+'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,days,avgD));}).join('');
       return;}
     var order=Object.keys(A.ws).map(Number).filter(function(w){return A.ws[w].tt>0;});
     order.sort(function(a,b){return wsSort==='tokens'
@@ -703,7 +726,7 @@ function renderPanel(A){
     panel.innerHTML=arr.map(function(x){return rowHtml('data-si="'+x.i
       +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
       +'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,days,avgD));}).join('');
     return;}
   var s=entry;
   crumb.innerHTML='<button class="chip on" data-a="up">← 返回</button>'
@@ -713,7 +736,8 @@ function renderPanel(A){
   crumb.style.display='flex';tools.style.display='none';
   $('#wsTitle').textContent='会话详情';
   panel.innerHTML='<div class="view-h"><div><div class="view-t">'+esc(s.s.t)+'</div>'
-    +'<div class="view-m">'+fd(new Date(s.first*60000))+' '+ft(new Date(s.first*60000))
+    +'<div class="view-m">'+esc(plabel(s.s.p))+' · '+esc(WS[state.ws])
+    +' · '+fd(new Date(s.first*60000))+' '+ft(new Date(s.first*60000))
     +' → '+fd(new Date(s.last*60000))+' '+ft(new Date(s.last*60000))
     +' · '+nf(s.rs.length)+' 次请求 · 合计 '+fmt(s.tt)+'</div></div>'
     +'<div><button class="mini on" data-v="sc">散点</button> '
@@ -764,6 +788,23 @@ function drawTable(s){
     +'<th>合计</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
+/* ---------------- 会话 Top 10 ---------------- */
+function renderSessionTop(A){
+  var el=$('#sessionTop');if(!el)return;
+  var rows=A.sess.slice().sort(function(a,b){return b.tt-a.tt;}).slice(0,10);
+  if(!rows.length){el.innerHTML='<div class="cap">该筛选条件下无会话</div>';return;}
+  el.innerHTML='<div class="strow"><span class="nm">会话</span><span class="plat">平台</span>'
+    +'<span class="wsn">工作空间</span><span class="tk">Token</span><span class="sh">占比 / 轮次</span></div>'
+    +rows.map(function(x){return '<div class="strow click" data-si="'+x.i
+      +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
+      +'" data-name="'+esc((x.s.t||'').toLowerCase())+'">'
+      +'<span class="nm" title="'+esc(x.s.t||'')+'">'+esc(x.s.t||'')+'</span>'
+      +'<span class="plat">'+esc(plabel(x.s.p))+'</span>'
+      +'<span class="wsn" title="'+esc(WS[x.s.w]||'')+'">'+esc(WS[x.s.w]||'')+'</span>'
+      +'<span class="tk">'+fmt(x.tt)+'</span>'
+      +'<span class="sh">'+pct(x.tt,A.tot).toFixed(1)+'%<small>· '+x.tn+' 轮</small></span></div>';}).join('');
+}
+
 /* ---------------- 总调度 ---------------- */
 function renderAll(){
   var A=aggregate();LASTA=A;
@@ -772,7 +813,7 @@ function renderAll(){
   $('#modelCap').innerHTML='同厂商模型用明度阶梯区分，色相保持品牌体系 · 全局 50% 单次请求 '
     +fmt(A.gp50);
   renderDaily(A);renderModelTotals(A);renderHour(A);renderDist(A);renderHeat(A);
-  renderPanel(A);
+  renderPanel(A);renderSessionTop(A);
   [].forEach.call(document.querySelectorAll('.ppill'),function(b){
     b.classList.toggle('on',win===+b.dataset.w);});
 }
@@ -807,6 +848,9 @@ document.addEventListener('click',function(ev){
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
 $('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+$('#platSel').addEventListener('change',function(ev){
+  platFilter=ev.target.value===''?-1:+ev.target.value;
+  selModel=null;state={ws:null,ses:null};renderAll();});
 function applyCustom(){
   var sv=$('#dStart').value,ev=$('#dEnd').value;if(!sv&&!ev)return;
   cLo=sv?Math.floor(new Date(sv+'T00:00:00').getTime()/60000):0;
@@ -938,7 +982,9 @@ def _payload(
              r.output_tokens, r.cache_read_tokens, r.cache_write_tokens]
             for r in rs
         ]
-        title = sid if len(sid) <= 44 else sid[:24] + "…" + sid[-14:]
+        title = (rs[0].title or "").strip() or sid
+        if len(title) > 44:
+            title = title[:24] + "…" + title[-14:]
         sessions.append({
             "w": ws_idx.get(rs[0].workspace, 0),
             "p": plat_idx.get(platform, 0),
@@ -1379,6 +1425,12 @@ def render_html(
         periods.append(f'<button class="ppill on" data-w="-1">{e(window_label)}</button>')
     period_pills = "".join(periods)
 
+    display_names = {getattr(s, "name", ""): getattr(s, "display_name", "") for s in statuses}
+    plat_opts = '<option value="">全部平台</option>' + "".join(
+        f'<option value="{i}">{e(display_names.get(p, p) or p)}</option>'
+        for i, p in enumerate(sorted(summary.by_platform))
+    )
+
     payload = _payload(summary, records, palette, prices, generated,
                        window_days, custom_range)
     data_js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -1412,6 +1464,8 @@ def render_html(
         "__GENERATED__": e(generated),
         "__CSS__": css,
         "__PERIODS__": period_pills,
+        "__PLATOPTS__": plat_opts,
+        "__SESSION_TOP__": "",
         "__HERO__": hero,
         "__KPIS__": kpis,
         "__S1NOTE__": s1_note,

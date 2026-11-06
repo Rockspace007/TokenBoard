@@ -42,8 +42,8 @@ CACHE_READ_KEYS = (
     "cached_tokens", "cacheReadTokens", "cacheRead",
 )
 CACHE_WRITE_KEYS = (
-    "cache_creation_input_tokens", "cache_creation_tokens", "cached_creation_tokens",
-    "cache_write_tokens", "cacheWriteTokens", "cacheWrite",
+    "prompt_cache_write_tokens", "cache_creation_input_tokens", "cache_creation_tokens",
+    "cached_creation_tokens", "cache_write_tokens", "cacheWriteTokens", "cacheWrite",
 )
 DETAIL_KEYS = ("prompt_tokens_details", "input_tokens_details", "cache_tokens_details")
 
@@ -200,6 +200,7 @@ class ParseContext:
     workspace: str
     session_id: str
     path: str
+    title: str = ""
 
 
 class BaseAdapter:
@@ -273,6 +274,7 @@ class BaseAdapter:
             workspace=ctx.workspace,
             session_id=extract_session(obj, ctx.session_id),
             model=extract_model(obj),
+            title=ctx.title,
             **usage,
         )
 

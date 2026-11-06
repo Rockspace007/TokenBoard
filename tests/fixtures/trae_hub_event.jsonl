@@ -1,0 +1,4 @@
+{"task_id": "task-1", "seq": 1, "type": "metadata", "data": "{\"created_at\": 1793864231616, \"session_id\": \"session-abc\", \"user_message_context\": {\"message_origins\": [{\"chat_session_title\": \"overlay-studio\"}]}}"}
+{"task_id": "task-1", "seq": 2, "type": "model_config", "data": "{\"config_name\": \"deepseek-v4.1-flash\", \"model_name\": \"deepseek-v4.1-flash__dev\"}"}
+{"task_id": "task-1", "seq": 3, "type": "token_usage", "data": "{\"prompt_tokens\": 202133, \"completion_tokens\": 13010, \"total_tokens\": null, \"cache_read_input_tokens\": null, \"cache_creation_input_tokens\": null}"}
+{"task_id": "task-1", "seq": 4, "type": "token_usage", "data": "{\"prompt_tokens\": 3000, \"completion_tokens\": 500, \"total_tokens\": 3500, \"cache_read_input_tokens\": 1000, \"cache_creation_input_tokens\": 200}"}

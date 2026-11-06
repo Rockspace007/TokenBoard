@@ -1,0 +1,16 @@
+[
+  {
+    "timestamp": "2026-11-03T09:00:00Z",
+    "prompt_tokens": 50,
+    "completion_tokens": 10,
+    "model": "json-model",
+    "session_id": "js-1"
+  },
+  {
+    "timestamp": 1793700000000,
+    "inputTokens": 30,
+    "outputTokens": 15,
+    "model": "json-model",
+    "session_id": "js-2"
+  }
+]

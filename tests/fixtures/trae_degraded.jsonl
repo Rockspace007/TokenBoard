@@ -1,0 +1,2 @@
+{"seq":1,"type":"token_usage","data":{"prompt_tokens":10,"completion_tokens":2}}
+{"seq":2,"type":"token_usage","data":{"prompt_tokens":20,"completion_tokens":3,"total_tokens":23}}

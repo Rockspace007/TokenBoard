@@ -1,0 +1,7 @@
+{"task_id":"task-2","seq":1,"type":"metadata","data":{"created_at":1793864231616,"session_id":"dedup-session","user_message_context":{"message_origins":[{"chat_session_title":"dedup-project"}]}}}
+{"task_id":"task-2","seq":2,"type":"model_config","data":{"config_name":"dedup-model","model_name":"dedup-model__dev"}}
+{"task_id":"task-2","seq":3,"type":"token_usage","data":{"request_uuid":"req-1","prompt_tokens":10,"completion_tokens":5,"total_tokens":null}}
+{"task_id":"task-2","seq":3,"type":"token_usage","data":{"request_uuid":"req-1","prompt_tokens":10,"completion_tokens":5,"total_tokens":null}}
+{"task_id":"task-2","seq":4,"type":"token_usage","data":{"request_uuid":"req-1","prompt_tokens":10,"completion_tokens":5,"total_tokens":null}}
+{"task_id":"task-2","seq":5,"type":"token_usage","data":{"request_uuid":"req-2","prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}
+{"task_id":"task-2","seq":5,"type":"token_usage","data":{"request_uuid":"req-2","prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}

@@ -7,6 +7,8 @@ usage 在 ``providerData.rawUsage``（或 ``providerData.usage``）。
 """
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,11 @@ class WorkBuddyAdapter(BaseAdapter):
         # 二级文件 = 会话文件；三级及更深（subagents/agent-*.jsonl）一律归属父会话，
         # 否则子代理会被算成独立会话，会话数与下钻层级都会失真。
         sid = Path(parts[1]).stem[:16] if len(parts) >= 2 else path.stem[:16]
-        return ParseContext(
+        return replace(
+            super().make_context(path, base),
             workspace=workspace_from(path, base),
             session_id=sid,
-            path=str(path),
+            title=_read_title(path),
         )
 
     def parse_line(self, obj: dict[str, Any], ctx: ParseContext) -> UsageRecord | None:
@@ -53,5 +56,25 @@ class WorkBuddyAdapter(BaseAdapter):
             workspace=ctx.workspace,
             session_id=ctx.session_id,
             model=model,
+            title=ctx.title,
             **usage,
         )
+
+
+def _read_title(path: Path) -> str:
+    """读取会话日志里的 ``aiTitle``；没有就返回空串，由展示层回退到会话 ID。"""
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            for raw in fh:
+                if '"aiTitle"' not in raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                title = obj.get("aiTitle") if isinstance(obj, dict) else None
+                if isinstance(title, str) and title.strip():
+                    return title.strip()
+    except OSError:
+        return ""
+    return ""

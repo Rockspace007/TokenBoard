@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 from .adapters.base import BaseAdapter
 from .adapters.claude_code import ClaudeCodeAdapter
@@ -136,11 +136,15 @@ def scan(
             # 单个平台出错不能拖垮整次扫描，记录后继续
             result.errors.append(f"[{adapter.name}] {type(exc).__name__}: {exc}")
 
-    # 同一文件可能被多个 root 通配命中，按内容指纹去重，避免重复计数
-    seen: set[tuple] = set()
+    # 同一文件可能被多个 root 通配命中，按内容指纹去重，避免重复计数。
+    # 适配器给出 dedup_key 时优先用它，这样同一请求的多份缓存即使时间戳不同
+    # （例如缺少 metadata 时回退到各自文件 mtime）也只算一次。
+    seen: set[Any] = set()
     unique: list[UsageRecord] = []
     for rec in result.records:
-        key = (rec.ts, rec.platform, rec.session_id, rec.model, rec.total_tokens, rec.input_tokens)
+        key = rec.dedup_key or (
+            rec.ts, rec.platform, rec.session_id, rec.model, rec.total_tokens, rec.input_tokens
+        )
         if key in seen:
             continue
         seen.add(key)

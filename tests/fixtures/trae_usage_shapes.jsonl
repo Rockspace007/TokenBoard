@@ -1,0 +1,10 @@
+{"task_id":"task-1","seq":1,"type":"metadata","data":{"created_at":1793864231616,"session_id":"shape-session","user_message_context":{"message_origins":[{"chat_session_title":"shape-project"}]}}}
+{"task_id":"task-1","seq":2,"type":"model_config","data":{"config_name":"shape-model","model_name":"shape-model__dev"}}
+{"task_id":"task-1","seq":3,"type":"token_usage","data":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":null,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"task_id":"task-1","seq":4,"type":"token_usage","data":"{\"prompt_tokens\": null, \"completion_tokens\": 10, \"total_tokens\": 50, \"prompt_tokens_total\": 999, \"completion_tokens_total\": 99}"}
+{"task_id":"task-1","seq":5,"type":"token_usage","data":"\"{\\\"prompt_tokens\\\": 30, \\\"completion_tokens\\\": null, \\\"total_tokens\\\": 60, \\\"cache_read_input_tokens\\\": null, \\\"cache_creation_input_tokens\\\": 5}\""}
+{"task_id":"task-1","seq":6,"type":"token_usage","data":{"usage":{"input":7,"output":3}}}
+{"task_id":"task-1","seq":7,"type":"token_usage","data":{"prompt_tokens":null,"completion_tokens":null,"total_tokens":null}}
+{"task_id":"task-1","seq":8,"type":"token_usage","data":{"prompt_tokens":null,"completion_tokens":null,"total_tokens":9,"cache_read_input_tokens":4}}
+{"task_id":"task-1","seq":9,"type":"token_usage","data":{"prompt_tokens":5}}
+{"task_id":"task-1","seq":10,"type":"token_usage","data":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}

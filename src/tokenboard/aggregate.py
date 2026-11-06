@@ -38,6 +38,10 @@ class Summary:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # 缓存字段缺失 / 为 null 的记录不能按 0 计入命中率分母，否则会把
+    # 「不可算」显示成 0% 命中。其它平台没有 field_states，默认全部已知。
+    cache_known_input: int = 0
+    cache_unknown_records: int = 0
     cost_cny: float = 0.0
     sessions: int = 0
     workspaces: int = 0
@@ -46,6 +50,7 @@ class Summary:
     by_model: dict[str, dict[str, Any]] = field(default_factory=dict)
     by_platform: dict[str, dict[str, Any]] = field(default_factory=dict)
     by_workspace: dict[str, dict[str, Any]] = field(default_factory=dict)
+    by_session: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     daily: dict[str, int] = field(default_factory=dict)
     hourly: list[int] = field(default_factory=lambda: [0] * 24)
     bands: list[int] = field(default_factory=lambda: [0, 0, 0, 0])  # 0-6/6-12/12-18/18-24
@@ -70,7 +75,12 @@ class Summary:
 
     @property
     def cache_hit_rate(self) -> float:
-        return (self.cache_read_tokens / self.input_tokens * 100.0) if self.input_tokens else 0.0
+        return (self.cache_read_tokens / self.cache_known_input * 100.0) if self.cache_known_input else 0.0
+
+    @property
+    def cache_hit_known(self) -> bool:
+        """是否至少有一条记录的缓存字段是可读的真实值。"""
+        return self.cache_known_input > 0
 
     @property
     def io_ratio(self) -> float:
@@ -99,6 +109,8 @@ class Summary:
             "workspaces": self.workspaces,
             "input_output_ratio": round(self.io_ratio, 2),
             "cache_hit_rate": round(self.cache_hit_rate, 2),
+            "cache_hit_known": self.cache_hit_known,
+            "cache_unknown_records": self.cache_unknown_records,
             "estimated_cost_cny": round(self.cost_cny, 2),
             "price_per_million_cny": round(self.price_per_million, 2),
             "active_days": self.active_days,
@@ -133,6 +145,10 @@ class Summary:
                 {"name": w, "sessions": len(self.ws_sessions.get(w, ())), **v}
                 for w, v in sorted(self.by_workspace.items(), key=lambda kv: -kv[1]["tokens"])
             ],
+            "session_ranking": [
+                {**v, "cost": round(v["cost"], 6)}
+                for v in sorted(self.by_session.values(), key=lambda x: (-x["tokens"], x["session_id"]))
+            ],
             "daily": [{"date": d, "tokens": t} for d, t in sorted(self.daily.items())],
             "hourly": list(self.hourly),
             "hourly_by_model": {m: list(v) for m, v in self.hourly_by_model.items()},
@@ -163,6 +179,13 @@ def summarize(records: Iterable[UsageRecord], prices: dict | None = None) -> Sum
         summary.output_tokens += rec.output_tokens
         summary.cache_read_tokens += rec.cache_read_tokens
         summary.cache_write_tokens += rec.cache_write_tokens
+        read_state = rec.field_states.get("cache_read_tokens", "ok") if rec.field_states else "ok"
+        write_state = rec.field_states.get("cache_write_tokens", "ok") if rec.field_states else "ok"
+        unknown = {"missing", "null", "invalid"}
+        if read_state in unknown or write_state in unknown:
+            summary.cache_unknown_records += 1
+        if read_state not in unknown:
+            summary.cache_known_input += rec.input_tokens
         summary.cost_cny += cost_cny(rec, prices)
 
         if summary.first_ts is None or rec.ts < summary.first_ts:
@@ -184,7 +207,36 @@ def summarize(records: Iterable[UsageRecord], prices: dict | None = None) -> Sum
         w["requests"] += 1
         summary.ws_sessions.setdefault(rec.workspace, set()).add((rec.platform, rec.session_id))
 
-        sessions.add((rec.platform, rec.session_id))
+        sid = (rec.platform, rec.session_id)
+        s = summary.by_session.setdefault(sid, {
+            "platform": rec.platform,
+            "workspace": rec.workspace,
+            "session_id": rec.session_id,
+            "title": rec.title or rec.session_id,
+            "tokens": 0,
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost": 0.0,
+            "first_ts": rec.ts,
+            "last_ts": rec.ts,
+        })
+        s["tokens"] += rec.total_tokens
+        s["requests"] += 1
+        s["input_tokens"] += rec.input_tokens
+        s["output_tokens"] += rec.output_tokens
+        s["cache_read_tokens"] += rec.cache_read_tokens
+        s["cache_write_tokens"] += rec.cache_write_tokens
+        s["cost"] += cost_cny(rec, prices)
+        s["first_ts"] = min(s["first_ts"], rec.ts)
+        s["last_ts"] = max(s["last_ts"], rec.ts)
+        if not s["title"] or s["title"] == s["session_id"]:
+            if rec.title:
+                s["title"] = rec.title
+
+        sessions.add(sid)
 
         # 时间维度统一按**本机时区**解释，与用户看到的日志时间一致
         dt = datetime.fromtimestamp(rec.ts)

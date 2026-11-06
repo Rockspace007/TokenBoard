@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -27,11 +27,18 @@ class UsageRecord:
     workspace: str
     session_id: str
     model: str
+    title: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     total_tokens: int = 0
+    # 每个 token 字段的来源：ok / zero / derived / missing / null / invalid。
+    # 数值列是 int，缺失或 null 时只能写 0 占位，这里保留「这不是真实 0」的信息，
+    # 供聚合与诊断区分「真实 0」和「不可算」。其它平台不填时默认全部视为已知。
+    field_states: dict[str, str] = field(default_factory=dict)
+    # 适配器给出的请求级去重键；registry 用它跨文件合并重复缓存。
+    dedup_key: str = ""
 
     def __post_init__(self) -> None:
         # frozen dataclass 只能通过 object.__setattr__ 补默认值

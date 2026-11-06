@@ -100,7 +100,28 @@ git clone https://github.com/your-name/tokenboard.git ~/.workbuddy/skills/tokenb
 | `--prices <json>` | 覆盖牌价：`{"glm":[2,8,0.4]}` |
 | `--title` / `--window-note` | 自定义标题 / 结论条数据覆盖提示 |
 
-子命令：`scan`（默认）、`platforms`、`brands`、`probe`、`serve-mcp`。
+子命令：`scan`（默认）、`import`、`platforms`、`brands`、`probe`、`serve-mcp`。
+
+### 导入外部用量文件
+
+平台只有加密数据库、没有明文日志时，可把客户端导出的 CSV / JSON 导入：
+
+```bash
+tokenboard import usage.csv --platform trae --format table
+tokenboard import usage.json \
+  --map ts=created_at --map input_tokens=prompt_tokens \
+  --map output_tokens=completion_tokens --format html --out dist/tokenboard-import.html
+```
+
+`--map FIELD=SOURCE` 可重复，`FIELD` 取 `ts` / `platform` / `workspace` / `session_id` /
+`model` / `title` / `input_tokens` / `output_tokens` / `cache_read_tokens` /
+`cache_write_tokens` / `total_tokens` / `dedup_key`；未映射字段走通用别名探测。
+
+JSON 响应默认自动寻找 `records` / `data` / `items` / `usages` 下的记录数组；结构更深时
+用 `--records data.items` 指定点分路径。
+
+Trae 用量页可以用真实浏览器会话抓取，再走上面的 `import`（不读取客户端 JWT）：
+见 [`scripts/README-trae-capture.md`](scripts/README-trae-capture.md)。
 
 ## 平台支持矩阵
 
@@ -109,7 +130,7 @@ git clone https://github.com/your-name/tokenboard.git ~/.workbuddy/skills/tokenb
 | WorkBuddy | `--platform workbuddy` | ✅ 已用真实日志验证 | `providerData.rawUsage`；子代理归属父会话 |
 | Claude Code | `--platform claude_code` | ❌ 未验证 | `message.usage.*` |
 | OpenAI Codex CLI | `--platform codex` | ❌ 未验证 | `token_count` 增量事件；已排除累计值 |
-| Trae / TraeCode | `--platform trae` | ❌ 未验证 | 本机仅有会话记忆，无 usage 字段 |
+| Trae / TraeCode | `--platform trae` | ⚠️ 部分验证 | 仅 `~/.trae-cn/hub_event_cache` 的 `token_usage` 事件明文可读；按 `task_id`+请求 ID/`seq` 去重，缺失/null 的缓存字段记为未知而非 0；其余会话历史在加密 `database.db` |
 | OpenCode | `--platform opencode` | ❌ 未验证 | 支持整文件 JSON 与 jsonl |
 | 任意目录 | `--path <dir\|file>` | — | 通用字段探测 |
 
@@ -121,7 +142,7 @@ git clone https://github.com/your-name/tokenboard.git ~/.workbuddy/skills/tokenb
 ## 测试与验证
 
 ```bash
-python -m unittest discover -s tests -v        # 48 个用例
+python -m unittest discover -s tests -v        # 61 个用例
 python scripts/smoke_mcp.py                    # MCP 握手端到端
 python -m tokenboard scan --path tests/fixtures/workbuddy.jsonl --format table
 python -m tokenboard probe --path <日志目录>   # 字段命中率
@@ -154,7 +175,7 @@ MCP 握手与 Skill 打包；打 `v*` tag 会自动把 Skill 包挂到 GitHub Re
 
 - [x] 多平台适配、双主题 + 品牌色、CLI + MCP + Skill、测试与文档
 - [x] 页内交互引擎：周期/日期切换、三级下钻、模型聚焦、悬浮明细
-- [ ] 用真实日志验证 Claude Code / Codex / Trae / OpenCode（欢迎带脱敏样例提 PR）
+- [ ] 用真实日志验证 Claude Code / Codex / OpenCode（Trae 已完成 `hub_event_cache` 部分验证，欢迎补全样例）
 - [ ] 流式聚合，支撑十万级以上请求
 - [ ] 桌宠 P0（Web Widget）→ P1（Tauri 独立桌宠），见可行性报告
 

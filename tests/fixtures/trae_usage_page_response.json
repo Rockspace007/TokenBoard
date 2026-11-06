@@ -1,0 +1,56 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "total": 3,
+    "permissions": [
+      {"action": "read", "resource": "usage"}
+    ],
+    "items": [
+      {
+        "requestId": "req-001",
+        "createdAt": 1762300800000,
+        "modelName": "deepseek-v4.1-flash",
+        "session": {
+          "id": "sess-a",
+          "title": "重构登录流程",
+          "workspacePath": "/Users/demo/projects/portal"
+        },
+        "usage": {
+          "promptTokens": 120000,
+          "completionTokens": 8000,
+          "cachedTokens": 30000,
+          "totalTokens": null
+        }
+      },
+      {
+        "requestId": "req-002",
+        "createdAt": 1762387200000,
+        "modelName": "claude-sonnet-4.5",
+        "session": {
+          "id": "sess-b",
+          "title": "修复 CI 失败"
+        },
+        "usage": {
+          "promptTokens": 45000,
+          "completionTokens": 12000,
+          "totalTokens": 57000,
+          "cacheReadTokens": null
+        }
+      },
+      {
+        "requestId": "req-003",
+        "createdAt": "2026-11-06T10:30:00+08:00",
+        "modelName": "gpt-5",
+        "session": {
+          "id": "sess-c"
+        },
+        "usage": {
+          "promptTokens": null,
+          "completionTokens": 500,
+          "totalTokens": 500
+        }
+      }
+    ]
+  }
+}
