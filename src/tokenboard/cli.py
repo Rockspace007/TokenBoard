@@ -86,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--since", type=parse_date, help="起始时间，YYYY-MM-DD 或 7d")
     s.add_argument("--until", type=parse_date, help="结束时间（不含），YYYY-MM-DD")
     s.add_argument("--out", help="输出文件路径；默认 html 写 tokenboard.html，其余写 stdout")
+    s.add_argument(
+        "--open", dest="open_browser", action="store_true",
+        help="写完 HTML 后直接用浏览器打开看板（--format html 时有效）",
+    )
     s.add_argument("--format", choices=("html", "json", "table"), default="html")
     s.add_argument("--theme", choices=("dark", "light"), default="light")
     s.add_argument("--prices", help="自定义价格表 JSON：{模型前缀: [输入, 输出, 缓存读取]}")
@@ -105,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     im.add_argument("--format", choices=("table", "json", "html"), default="table")
     im.add_argument("--out", help="输出文件路径；html 默认 dist/tokenboard-import.html")
+    im.add_argument(
+        "--open", dest="open_browser", action="store_true",
+        help="写完 HTML 后直接用浏览器打开看板（--format html 时有效）",
+    )
     im.add_argument("--theme", choices=("dark", "light"), default="light")
     im.add_argument("--prices", help="自定义价格表 JSON")
     im.add_argument("--title", default="TokenBoard · 外部用量导入")
@@ -185,6 +193,11 @@ def _emit(args: argparse.Namespace, result, summary, default_html: str) -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
         print(f"已写入 {target}  |  {summary.records} 条记录  |  {len(text):,} 字符", file=sys.stderr)
+        if getattr(args, "open_browser", False) and args.format == "html":
+            import webbrowser
+
+            webbrowser.open(target.as_uri())
+            print("已在浏览器打开", file=sys.stderr)
     else:
         print(text)
     return 0 if not result.errors else 1
