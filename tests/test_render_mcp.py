@@ -59,7 +59,7 @@ class TestRender(unittest.TestCase):
 
     def test_new_modules_present(self):
         html = render_html(self.summary, self.records, self.statuses)
-        for needle in ("补充指标 · 原统计口径", "单模型总量统计", "0—24 时分布 · 按模型",
+        for needle in ("单模型总量统计", "0—24 时分布 · 按模型",
                        "单次请求大小分布", "日活分布", "工作空间活跃分布",
                        "周期跟随全局时间窗口", "metricSeg", "window.TB_DATA=",
                        "data-tip", "id=\"wsMult\""):

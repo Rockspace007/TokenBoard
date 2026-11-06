@@ -54,9 +54,14 @@ padding:6px 12px;border-radius:999px;cursor:pointer;font-family:var(--sans)}
 border-radius:7px;white-space:nowrap;cursor:pointer;font-family:var(--sans)}
 .twin button.on{background:var(--brandsoft);color:var(--brandb);font-weight:600;
 box-shadow:inset 0 0 0 1px var(--brand)}
-.drange{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--t3)}
-.drange input{border:1px solid var(--bd);background:var(--surface);color:var(--t1);border-radius:7px;
-padding:5px 8px;font-size:10.5px;font-family:var(--mono);color-scheme:light dark}
+.drange{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--t2)}
+.drange input{border:1px solid var(--bd);background:var(--surface);color:var(--t1);
+-webkit-text-fill-color:var(--t1);border-radius:7px;
+padding:5px 8px;font-size:10.5px;font-family:var(--mono)}
+/* 日期输入内部文字必须走 text_1 主文字（配色规范 §6），
+   不再把 color-scheme 交给系统偏好决定，避免浅色主题下日期文字被 UA 画成浅色 */
+body[data-theme=light] .drange input{color-scheme:light}
+body[data-theme=dark] .drange input{color-scheme:dark}
 /* ---- 结论条 ---- */
 .hero{position:relative;background:var(--surface);border:1px solid var(--bds);border-radius:20px;
 padding:20px 26px 18px;margin-bottom:16px;overflow:hidden}
@@ -71,7 +76,6 @@ border-radius:2px;background:var(--brand)}
 .hero .side .v{font-family:var(--mono);font-size:18px;font-weight:700;margin-top:5px}
 /* ---- KPI ---- */
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:8px}
-.kpis.three{grid-template-columns:repeat(3,1fr)}
 .kpi{background:var(--surface);border:1px solid var(--bd);border-radius:20px;padding:16px 18px}
 .kpi .k{font-size:11px;color:var(--t3)}
 .kpi .v{font-family:var(--mono);font-size:32px;font-weight:700;margin-top:10px;line-height:1.1;
@@ -91,10 +95,12 @@ padding:18px 22px;margin-bottom:16px}
 .hdnote{font-size:10.5px;color:var(--t3)}
 .duo{display:grid;grid-template-columns:2fr 1fr;gap:16px}
 @media(max-width:980px){.duo{grid-template-columns:1fr}
-.kpis,.kpis.three{grid-template-columns:repeat(2,1fr)}.chips{grid-template-columns:repeat(2,1fr)}}
+.kpis{grid-template-columns:repeat(2,1fr)}.chips{grid-template-columns:repeat(2,1fr)}}
 /* ---- 模型条 ---- */
-.mrow{display:grid;grid-template-columns:200px 1fr 300px;gap:12px;align-items:center;
-padding:9px 0;font-size:11.5px}
+/* 名字列宽度由 JS 测量所有模型名（含厂商 chip）后写入 --nmw，保证完整显示；
+   上限 cap 在 max(200px, 42vw)，极长名超出上限仍走省略号，条形列永远保底可见 */
+.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(160px,2fr) minmax(190px,300px);
+gap:12px;align-items:center;padding:9px 0;font-size:11.5px}
 .mrow .nm{font-family:var(--mono);font-weight:600;color:var(--t1);overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .mrow .nm.sans{font-family:var(--sans);font-weight:500;cursor:default}
@@ -117,7 +123,9 @@ tbody tr:last-child td{border-bottom:none}
 td.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 td.num{font-family:var(--mono);color:var(--t1);font-weight:600}
 tr.total td{border-top:1px solid var(--bds);border-bottom:none;color:var(--t1);font-weight:600}
-.pill{font-size:9.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--bd)}
+/* 状态徽章禁止折行：中文列太窄时会被拆成两行（已验/证），加 nowrap 保持单行 */
+.pill{font-size:9.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--bd);
+white-space:nowrap;word-break:keep-all;display:inline-block}
 .pill.ok{color:var(--ok);border-color:var(--ok)}
 .pill.no{color:var(--warn);border-color:var(--warn)}
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--brand);display:inline-block;margin-right:6px}
@@ -206,6 +214,10 @@ margin:4px 0 12px}
 #tip{position:fixed;z-index:99;background:var(--t1);color:var(--bg);font-size:10.5px;line-height:1.55;
 padding:7px 10px;border-radius:8px;pointer-events:none;opacity:0;transition:opacity .08s;
 max-width:280px;white-space:pre-line;font-family:var(--mono)}
+/* 0—24 时分布的悬停竖线：底部留 34/184（基线以下坐标区）不遮挡时刻标签 */
+#hourChart .hchart{position:relative}
+#hourChart .hxline{position:absolute;top:0;bottom:18.5%;width:1px;display:block;
+background:var(--t2);opacity:0;pointer-events:none;transition:opacity .08s}
 .foot{margin-top:28px;padding-top:14px;border-top:1px solid var(--bd);font-size:10.5px;
 color:var(--t3);line-height:1.9}
 """
@@ -226,18 +238,16 @@ _TEMPLATE = r"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <button class="chip" onclick="window.print()">导出 PDF</button></div></div>
 __HERO__
 <div class="kpis" id="kpis">__KPIS__</div>
-<div class="sec"><b>01</b><h2>补充指标 · 原统计口径</h2><span id="s1note">__S1NOTE__</span></div>
-<div class="kpis three" id="kpi2">__KPI2__</div>
-<div class="sec"><b>02</b><h2>模型与品牌色</h2><span>点击模型名或图例可聚焦单个模型</span></div>
+<div class="sec"><b>01</b><h2>模型与品牌色</h2><span>点击模型名或图例可聚焦单个模型</span></div>
 <div class="duo">
 <div class="card"><h3>按模型消耗</h3><div class="cap" id="modelCap">__MODELCAP__</div>
 <div id="modelRows">__MODELS__</div></div>
 <div class="card"><h3>每日用量趋势</h3><div class="cap">按模型堆叠 · 点击图例聚焦 · 单位 Token</div>
 <div id="dailyChart">__DAILY__</div></div>
 </div>
-<div class="sec"><b>03</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
+<div class="sec"><b>02</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
 <div class="card">__SOURCES__</div>
-<div class="sec"><b>04</b><h2>使用分布与时间节律</h2><span>工作空间 / 请求规模 / 日活 / 时段 / 模型构成</span></div>
+<div class="sec"><b>03</b><h2>使用分布与时间节律</h2><span>工作空间 / 请求规模 / 日活 / 时段 / 模型构成</span></div>
 <div class="card"><div id="wsCrumb" class="crumb"></div>
 <h3 id="wsTitle">工作空间活跃分布</h3>
 <div id="wsTools">
@@ -258,7 +268,7 @@ __HERO__
 <div id="sessionTop">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
 <div class="card"><h3>0—24 时分布 · 按模型</h3>
-<span class="hdnote">点击图例聚焦单个模型</span><div id="hourChart">__HOURLY__</div></div>
+<span class="hdnote">点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
 <div class="card"><h3>单次请求大小分布&ensp;<span class="hdnote" id="distNote"></span></h3>
 <div id="distBody">__REQDIST__</div></div>
 <div class="card"><h3>日活分布&ensp;<span class="hdnote">色深代表当日该小时的消耗强度 · 悬浮看数值</span></h3>
@@ -384,7 +394,38 @@ document.addEventListener('mousemove',function(ev){
   if(host&&host.dataset.tip){tip.textContent=host.dataset.tip;tip.style.opacity=1;
     tip.style.left=Math.min(window.innerWidth-290,ev.clientX+14)+'px';
     tip.style.top=(ev.clientY+16)+'px';}
-  else tip.style.opacity=0;});
+  /* #hourChart 内的悬停竖线有自己的分段 tooltip（在更早的冒泡阶段写入），
+     document 级监听处于冒泡末端、最后执行，不能把它没看到的 hour 级 tooltip 盖回 0 */
+  else if(!(hourCtx.length&&hourChartEl&&hourChartEl.contains(t)))tip.style.opacity=0;});
+
+/* ---------------- 0—24 时分布：悬停竖线 + 该小时分模型消耗 ---------------- */
+/* #hourChart 是常驻容器（每次重绘只替换 innerHTML），监听器用事件委托
+   绑一次即可长期生效；竖线节点每次现查（renderHour 重绘会重建 DOM，
+   缓存节点的引用会变成游离节点导致赋值失效）；hourCtx 由 renderHour 更新。 */
+var hourCtx=[],hourChartEl=document.getElementById('hourChart');
+var hxHide=function(){var l=hourChartEl&&hourChartEl.querySelector('.hxline');
+  if(l)l.style.opacity=0;};
+if(hourChartEl){
+  hourChartEl.addEventListener('mousemove',function(ev){
+    var svg=hourChartEl.querySelector('svg');
+    var rc=svg&&hourCtx.length?svg.getBoundingClientRect():null;
+    if(!rc||!rc.width){hxHide();return;}
+    var xv=(ev.clientX-rc.left)/rc.width*24;
+    if(xv<-0.6||xv>24.61){hxHide();return;}
+    var h=Math.max(0,Math.min(23,Math.round(xv)));
+    var line=hourChartEl.querySelector('.hxline');
+    if(!line){var wrap=hourChartEl.querySelector('.hchart');
+      if(!wrap){hxHide();return;}
+      line=document.createElement('i');line.className='hxline';wrap.appendChild(line);}
+    line.style.left=(h/24*100)+'%';line.style.opacity=1;
+    var total=0,detail=[];
+    hourCtx.forEach(function(m){var v=m.series[h]||0;total+=v;
+      if(v>0)detail.push(m.name+'：'+fmt(v)+' token');});
+    tip.textContent=(h<10?'0'+h:h)+':00–'+(h+1)+':00\n'
+      +(detail.length?detail.join('\n'):'该时段无消耗')+'\n合计 '+fmt(total)+' token';
+    tip.style.opacity=1;tip.style.left=Math.min(window.innerWidth-290,ev.clientX+14)+'px';
+    tip.style.top=(ev.clientY+16)+'px';});
+  hourChartEl.addEventListener('mouseleave',function(){hxHide();tip.style.opacity=0;});}
 
 /* ---------------- 指标区块 ---------------- */
 function renderHero(A){
@@ -406,15 +447,11 @@ function renderKpis(A){
   $('#kpis').innerHTML=[
     ['合计 Token',fmt(A.tot),'',true],['请求轮次',nf(A.turns),'',false],
     ['缓存命中率',pct(A.ch,A.inp).toFixed(1),'%',false],
-    ['预估金额（元）','¥'+A.cost.toFixed(2),'',false]
-  ].map(function(x){return '<div class="kpi'+(x[3]?' emph':'')+'"><div class="k">'+x[0]
-    +'</div><div class="v">'+x[1]+(x[2]?'<small>'+x[2]+'</small>':'')+'</div></div>';}).join('');
-  $('#kpi2').innerHTML=[
-    ['日均（有数据天）',fmt(A.tot/days)],['会话',nf(A.nsess)],
-    ['输入 / 输出比',(A.out?Math.round(A.inp/A.out):0)+' : 1']]
-    .map(function(x){return '<div class="kpi"><div class="k">'+x[0]
-      +'</div><div class="v">'+x[1]+'</div></div>';}).join('');
-  $('#s1note').innerHTML=esc(winLabel())+'&ensp;·&ensp;'+Object.keys(A.daily).length+' 个有数据日';
+    ['预估金额（元）','¥'+A.cost.toFixed(2),'',false],
+    ['日均（有数据天）',fmt(A.tot/days),'',false],['会话',nf(A.nsess),'',false],
+    ['输入 / 输出比',(A.out?Math.round(A.inp/A.out):0)+' : 1','',false]]
+    .map(function(x){return '<div class="kpi'+(x[3]?' emph':'')+'"><div class="k">'+x[0]
+      +'</div><div class="v">'+x[1]+(x[2]?'<small>'+x[2]+'</small>':'')+'</div></div>';}).join('');
 }
 
 /* ---------------- 按模型消耗 ---------------- */
@@ -528,7 +565,9 @@ function renderModelTotals(A){
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
   var top=orderByTokens(A).slice(0,2);
-  if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';return;}
+  if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';hourCtx=[];return;}
+  hourCtx=top.map(function(mi){return {name:models[mi],vendor:VENDOR[mi]||'',
+    series:(A.hb[mi]||new Array(24).fill(0)).slice()};});
   var W=1240,base=150;
   var peak=niceMax(Math.max.apply(null,top.map(function(mi){
     return Math.max.apply(null,A.hb[mi]||new Array(24).fill(0));})));
@@ -560,7 +599,7 @@ function renderHour(A){
       +'><i style="background:'+pal(mi)+'"></i>'+esc(models[mi])+' · '
       +esc(VENDOR[mi]||'')+'</span>';}).join('');
   $('#hourChart').innerHTML='<div class="legend" style="justify-content:flex-end">'
-    +legend+'</div>'+out.join('');
+    +legend+'</div>'+'<div class="hchart">'+out.join('')+'<i class="hxline"></i></div>';
 }
 
 /* ---------------- 单次请求大小分布 ---------------- */
@@ -654,25 +693,27 @@ function renderHeat(A){
   if(heatView==='day'){
     var days=daySeq(7),peak=1;
     days.forEach(function(dk){(A.hm[dk]||[]).forEach(function(v){if(v>peak)peak=v;});});
-    var cell=40,gap=6,width=24*(cell+gap),rowH=16,rowGap=8;
-    var svg=['<svg viewBox="0 0 '+width+' '+(days.length*(rowH+rowGap)+24)
+    /* 日期文字与热力格必须放进同一张 SVG 整体缩放：旧版日期是固定高度的
+       HTML 标签列，而 SVG 自适应容器宽度整体缩放，两套行距缩放比例不同，
+       行数一多日期就漂移错位 */
+    var cell=40,gap=6,labelW=80,rowH=16,rowGap=8,top=22;
+    var width=labelW+24*(cell+gap),height=top+days.length*(rowH+rowGap)+2;
+    var svg=['<svg viewBox="0 0 '+width+' '+height
       +'" role="img" aria-label="日 × 小时热力图">'];
-    for(var h=0;h<24;h++)svg.push('<text x="'+(h*(cell+gap)+12)+'" y="12" fill="var(--t3)" '
-      +'font-size="9" text-anchor="middle">'+h+'</text>');
-    days.forEach(function(dk,r){var y=22+r*(rowH+rowGap);
-      var dayTot=A.daily[dk]?A.daily[dk].tt:0;
+    for(var h=0;h<24;h++)svg.push('<text x="'+(labelW+h*(cell+gap)+cell/2)+'" y="12" '
+      +'fill="var(--t3)" font-size="9" text-anchor="middle">'+h+'</text>');
+    days.forEach(function(dk,r){var y=top+r*(rowH+rowGap);
+      var has=!!A.daily[dk],dayTot=has?A.daily[dk].tt:0;
+      svg.push('<text x="'+(labelW-8)+'" y="'+(y+rowH/2+3.5).toFixed(1)+'" fill="'
+        +(has?'var(--t2)':'var(--t3)')+'" font-size="10" text-anchor="end"'
+        +' style="font-family:var(--mono)">'+esc(dk.slice(5).replace('-','—'))+'</text>');
       for(var hh=0;hh<24;hh++){var v=(A.hm[dk]||new Array(24).fill(0))[hh];
         var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
-        svg.push('<rect x="'+(hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
+        svg.push('<rect x="'+(labelW+hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
           +'" rx="3" fill="'+HEAT[lv]+'" data-tip="'+esc(dk+' '+hh+':00–'+(hh+1)
           +':00\n'+nf(v)+' token（占当日 '+pct(v,dayTot).toFixed(1)+'%）')+'"/>');}});
     svg.push('</svg>');
-    var labels=days.map(function(dk){return '<div style="height:'+(rowH+rowGap)
-      +'px;display:flex;align-items:center;font-family:var(--mono);font-size:10px;color:'
-      +(A.daily[dk]?'var(--t2)':'var(--t3)')+'">'
-      +esc(dk.slice(5).replace('-','—'))+'</div>';}).join('');
-    body='<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
-      +'<div style="padding-top:22px">'+labels+'</div><div>'+svg.join('')+'</div></div>';
+    body=svg.join('');
   }else{
     var n=heatView==='week'?7:30;
     var seq=daySeq(n);
@@ -854,11 +895,24 @@ function renderSessionTop(A){
       +'<span class="sh">'+pct(x.tt,A.tot).toFixed(1)+'%<small>· '+x.tn+' 轮</small></span></div>';}).join('');
 }
 
+/* ---------------- 名字列测宽：模型名 + 厂商 chip 一并完整显示 ---------------- */
+/* .nm 虽然 overflow:hidden，scrollWidth 仍能读出完整内容宽度；取全行最大值写入
+   CSS 变量 --nmw（.mrow 第一列走 var(--nmw,200px)），条形/数值列随之给足空间。
+   上限 minmax 之外的 cap：最多吃 42% 视窗宽，防止个别超长名挤没条形。 */
+function fitModelNameCol(){
+  var w=200;
+  [].forEach.call(document.querySelectorAll('#modelRows .nm'),function(el){
+    var sw=el.scrollWidth+2;if(sw>w)w=sw;});
+  w=Math.min(w,Math.max(200,window.innerWidth*0.42));
+  document.documentElement.style.setProperty('--nmw',Math.round(w)+'px');
+}
+
 /* ---------------- 总调度 ---------------- */
 function renderAll(){
   var A=aggregate();LASTA=A;
   renderHero(A);renderKpis(A);
   $('#modelRows').innerHTML=modelRows(A);
+  fitModelNameCol();
   $('#modelCap').innerHTML='同厂商模型用明度阶梯区分，色相保持品牌体系 · 全局 50% 单次请求 '
     +fmt(A.gp50);
   renderDaily(A);renderModelTotals(A);renderHour(A);renderDist(A);renderHeat(A);
@@ -866,6 +920,7 @@ function renderAll(){
   [].forEach.call(document.querySelectorAll('.ppill'),function(b){
     b.classList.toggle('on',win===+b.dataset.w);});
 }
+window.addEventListener('resize',fitModelNameCol);
 
 /* ---------------- 事件 ---------------- */
 document.addEventListener('click',function(ev){
@@ -1259,7 +1314,8 @@ def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
         f'<span data-dm="{mi}"><i style="background:{e(palette[m])}"></i>{e(m)} · {e(vendor_of(m))}</span>'
         for mi, m in enumerate(top)
     )
-    return f'<div class="legend" style="justify-content:flex-end">{legend}</div>' + "".join(parts)
+    return f'<div class="legend" style="justify-content:flex-end">{legend}</div>' \
+           + f'<div class="hchart">{"".join(parts)}</div>'
 
 
 def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
@@ -1352,39 +1408,41 @@ def _dayhour_card(summary: Summary) -> str:
     # 静态首屏与 JS 日视图同构：最近 7 个自然日（含空窗日，诚实显示），旧→新
     days = [(anchor - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
     peak = max((v for d in days for v in summary.hour_matrix.get(d, (0,) * 24)), default=0) or 1
-    cell, gap = 40, 6
-    width = 24 * (cell + gap)
+    # 日期文字与热力格放进同一张 SVG（整体缩放后天然对齐），小时刻度精确落在
+    # 每列中心。旧版把日期做成固定高度的 HTML 标签列，而 SVG 自适应宽度整体
+    # 缩放，两套行距缩放比例不同，行数一多日期就漂移错位。
+    cell, gap, label_w, top = 40, 6, 80, 22
     row_h, row_gap = 16, 8
-    height = len(days) * (row_h + row_gap)
-    heat = HEATMAPS["light"]
-    parts = [f'<svg viewBox="0 0 {width} {height + 24}" role="img" aria-label="日 × 小时热力图">']
+    width = label_w + 24 * (cell + gap)
+    height = top + len(days) * (row_h + row_gap) + 2
+    parts = [f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="日 × 小时热力图">']
     for hour in range(24):
-        parts.append(f'<text x="{hour * (cell + gap) + 12}" y="12" fill="var(--t3)" '
-                     f'font-size="9" text-anchor="middle">{hour}</text>')
+        cx = label_w + hour * (cell + gap) + cell / 2
+        parts.append(
+            f'<text x="{cx:.1f}" y="12" fill="var(--t3)" font-size="9" '
+            f'text-anchor="middle">{hour}</text>'
+        )
     for r, day in enumerate(days):
-        y = 22 + r * (row_h + row_gap)
-        row = summary.hour_matrix.get(day, (0,) * 24)
+        y = top + r * (row_h + row_gap)
         dim = "var(--t3)" if day not in summary.hour_matrix else "var(--t2)"
+        parts.append(
+            f'<text x="{label_w - 8}" y="{y + row_h / 2 + 3.5:.1f}" fill="{dim}" '
+            'font-size="10" text-anchor="end" style="font-family:var(--mono)">'
+            f'{e(day[5:7])}—{e(day[8:10])}</text>'
+        )
+        row = summary.hour_matrix.get(day, (0,) * 24)
         for hour in range(24):
             v = row[hour]
             level = 0 if v <= 0 else min(6, 1 + int(v / peak * 5.999))
+            x = label_w + hour * (cell + gap)
             parts.append(
-                f'<rect x="{hour * (cell + gap)}" y="{y}" width="{cell}" height="{row_h}" rx="3" '
+                f'<rect x="{x}" y="{y}" width="{cell}" height="{row_h}" rx="3" '
                 f'fill="var(--h{level})"><title>{e(day)} {hour}:00 · {fmt(v)}</title></rect>'
             )
     parts.append("</svg>")
-    row_labels = ""
-    for day in days:
-        dim = "var(--t3)" if day not in summary.hour_matrix else "var(--t2)"
-        row_labels += (
-            f'<div style="height:{row_h + row_gap}px;display:flex;align-items:center;'
-            f'font-family:var(--mono);font-size:10px;color:{dim}">{e(day[5:7])}—{e(day[8:10])}</div>'
-        )
     swatches = "".join(f'<i style="background:var(--h{i})"></i>' for i in range(7))
     legend = f'<div class="hmlegend">低 {swatches} 高</div>'
-    body = ('<div style="display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:start">'
-            f'<div style="padding-top:22px">{row_labels}</div><div>{"".join(parts)}</div></div>')
-    return f'<div class="chips">{chips}</div>{legend}{body}'
+    return f'<div class="chips">{chips}</div>{legend}{"".join(parts)}'
 
 
 def _sources_card(statuses: Sequence[SourceStatus]) -> str:
@@ -1466,13 +1524,10 @@ def render_html(
         ("请求轮次", f'{kpi["requests"]:,}', "", False),
         ("缓存命中率", f'{kpi["cache_hit_rate"]:.1f}', "%", False),
         ("预估金额（元）", f'¥{kpi["estimated_cost_cny"]:.2f}', "", False),
-    ])
-    kpi2 = _kpi_cards([
         ("日均（有数据天）", fmt(summary.daily_average), "", False),
         ("会话", f'{kpi["sessions"]:,}', "", False),
         ("输入 / 输出比", f'{kpi["input_output_ratio"]:.1f} : 1', "", False),
     ])
-    s1_note = f"{e(window_label)}&ensp;·&ensp;{kpi['active_days']} 个有数据日"
 
     periods = []
     known = {"1 天": 1, "3 天": 3, "近 7 天": 7, "近 30 天": 30}
@@ -1526,8 +1581,6 @@ def render_html(
         "__SESSION_TOP__": "",
         "__HERO__": hero,
         "__KPIS__": kpis,
-        "__S1NOTE__": s1_note,
-        "__KPI2__": kpi2,
         "__MODELCAP__": (
             "同厂商模型用明度阶梯区分，色相保持品牌体系 · "
             f"全局 50% 单次请求 {fmt(summary.global_p50)}"
