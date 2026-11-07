@@ -8,4 +8,4 @@
   1) agent tool：``python -m tokenboard ...`` / ``python -m tokenboard serve-mcp``
   2) WorkBuddy skill：见仓库根目录 ``skill/SKILL.md``
 """
-__version__ = "0.4.0"
+__version__ = "0.4.1"
