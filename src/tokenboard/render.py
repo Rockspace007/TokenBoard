@@ -24,7 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Sequence
 
-from .aggregate import DEFAULT_DIST_TOP, DEFAULT_SESSION_TOP, Summary
+from .aggregate import DEFAULT_DIST_TOP, DEFAULT_SESSION_TOP, DEFAULT_WS_TOP, Summary
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
 from .models import SourceStatus, UsageRecord
 from .pricing import price_of
@@ -110,11 +110,6 @@ text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .mrow .track{height:12px;background:var(--surface2);border-radius:8px;overflow:hidden}
 .mrow .track i{display:block;height:100%;border-radius:8px;transition:opacity .15s}
 /* 输入/输出构成条：两段加起来正好 100%，各自不被 flex 压缩 */
-.mrow .track.split{display:flex}
-.mrow .track.split i{flex:none;border-radius:0}
-.mrow .track.split i:first-child{border-radius:8px 0 0 8px}
-.mrow .track.split i:last-child{border-radius:0 8px 8px 0}
-.mrow .track[data-tip]{cursor:help}
 .mrow .num{font-family:var(--mono);font-size:10.5px;color:var(--t2);text-align:right;
 font-variant-numeric:tabular-nums;white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:3px;flex:none;display:inline-block;vertical-align:-1px}
@@ -145,7 +140,14 @@ white-space:nowrap;word-break:keep-all;display:inline-block}
 padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--sans)}
 .mini.on{background:var(--brandsoft);border-color:var(--brand);color:var(--brandb);font-weight:600}
 .mini:hover{border-color:var(--bds)}
-select.mini{padding:4px 8px;color-scheme:light dark}
+/* 卡片头：标题 + 说明 + 右侧下拉。说明必须 min-width:0 可收缩，否则长文案会把
+   select 挤出卡片右边界造成控件被裁；下拉 flex:none，并留足原生箭头空间与最小宽度 */
+.cardhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cardhead>h3{flex:0 0 auto}
+.cardhead>.hdnote{flex:1 1 180px;min-width:0}
+select.mini{padding:5px 20px 5px 9px;color-scheme:light dark;white-space:nowrap}
+.cardhead>select.mini{flex:0 0 auto;min-width:100px;margin-left:auto}
+.cardhead>select.mini.wide{min-width:132px}
 .wssearch{border:1px solid var(--bd);background:var(--surface);color:var(--t1);font-size:10.5px;
 padding:5px 10px;border-radius:7px;width:130px;outline:none;font-family:var(--sans)}
 .wssearch:focus{border-color:var(--bds)}
@@ -265,7 +267,9 @@ __HERO__
 <div class="card">__SOURCES__</div>
 <div class="sec"><b>03</b><h2>使用分布与时间节律</h2><span>工作空间 / 请求规模 / 日活 / 时段 / 模型构成</span></div>
 <div class="card"><div id="wsCrumb" class="crumb"></div>
-<h3 id="wsTitle">工作空间活跃分布</h3>
+<div class="cardhead"><h3 id="wsTitle">工作空间活跃分布</h3>
+<span class="hdnote" id="wsNote">__WSNOTE__</span>
+<select class="mini wide" id="wsTop" aria-label="显示工作空间数量">__WSOPTS__</select></div>
 <div id="wsTools">
 <div class="toolbar">
 <span class="mini" data-m="ses">按会话</span>
@@ -279,20 +283,20 @@ __HERO__
 <option value="3" selected>3X</option><option value="4">4X</option>
 <option value="6">6X</option><option value="8">8X</option></select></div></div>
 <div id="wsPanel" class="scrollbox">__WORKSPACES__</div></div>
-<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<div class="card"><div class="cardhead">
 <h3 id="sessTitle">会话消耗 Top __SESS_TOP__</h3>
 <span class="hdnote" id="sessNote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
-<select class="mini" id="sessTop" aria-label="显示会话数量" style="margin-left:auto">__SESSOPTS__</select></div>
+<select class="mini" id="sessTop" aria-label="显示会话数量">__SESSOPTS__</select></div>
 <div id="sessionTop" class="scrollbox">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
-<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<div class="card"><div class="cardhead">
 <h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span>
-<select class="mini" id="hourMode" aria-label="0—24 时分布口径" style="margin-left:auto">
+<select class="mini" id="hourMode" aria-label="0—24 时分布口径">
 <option value="win" selected>窗口累计</option><option value="today">仅当日</option></select></div>
 <span class="hdnote" id="hourSub">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
-<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<div class="card"><div class="cardhead">
 <h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
-<select class="mini" id="distTop" aria-label="显示模型数量" style="margin-left:auto">
+<select class="mini" id="distTop" aria-label="显示模型数量">
 <option value="2">TOP 2</option><option value="3" selected>TOP 3</option>
 <option value="5">TOP 5</option><option value="8">TOP 8</option>
 <option value="0">全部模型</option></select></div>
@@ -326,6 +330,7 @@ var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
 var sessTop=__SESS_TOP__;  // 会话消耗榜显示的条数（0=全部），与 Python 常量同源
+var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部），与 Python 常量同源
 var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅生成当日逐时
 var LASTA=null;
 
@@ -506,21 +511,7 @@ function modelRows(A){
       +'%;background:'+pal(mi)+'"></i></span>'
       +'<span class="num">'+fmt(A.mt[mi])+'&ensp;·&ensp;'+esc(VENDOR[mi]||'')+'&ensp;·&ensp;'
       +pct(A.mt[mi],A.tot).toFixed(1)+'%</span></div>';});
-  /* 两条指标行各自以「整条 = 100%」为满刻度单独填充，不与上方模型条共用归一化基准 */
-  var hit=Math.max(0,Math.min(100,pct(A.ch,A.inp)));
-  rows+='<div class="mrow"><span class="nm sans">缓存命中率</span>'
-    +'<span class="track" data-tip="'+esc('整条 = 100%（全部输入 token）\n缓存命中 '
-    +hit.toFixed(1)+'%')+'"><i style="width:'+hit.toFixed(1)
-    +'%;background:var(--brand)"></i></span>'
-    +'<span class="num">'+hit.toFixed(1)+'%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>';
-  var io=A.inp+A.out,ip=io?pct(A.inp,io):0,op=io?pct(A.out,io):0;
-  rows+='<div class="mrow"><span class="nm sans">输入 / 输出比</span>'
-    +'<span class="track split" data-tip="'+esc('整条 = 100%（输入 + 输出）\n输入 '
-    +ip.toFixed(1)+'% · 输出 '+op.toFixed(1)+'%')+'">'
-    +'<i style="width:'+ip.toFixed(1)+'%;background:var(--brand)"></i>'
-    +'<i style="width:'+op.toFixed(1)+'%;background:var(--bds)"></i></span>'
-    +'<span class="num">'+(A.out?Math.round(A.inp/A.out):0)+' : 1&ensp;·&ensp;全局 50% '
-    +fmt(A.gp50)+'</span></div>';
+  /* 缓存命中率 / 输入·输出比已在 KPI 区呈现，这里不再重复画低区分度的进度条 */
   return rows;
 }
 
@@ -859,6 +850,17 @@ function rowHtml(attrs,nm,tk,share,sub,viz){
     +esc(nm)+'</span><span class="tk">'+fmt(tk)
     +'</span><span class="sh">'+share+'<small>· '+sub+'</small></span>'
     +'<span class="wviz">'+viz+'</span><span class="chev">›</span></div>';}
+/* 工作空间榜计数提示：搜索态显示匹配数且不受 TOP 限制，避免榜外项搜不到 */
+function setWsNote(total,label){
+  var n=$('#wsNote');if(!n)return;
+  n.textContent=q?('匹配 '+nf(total)+' 个'+label+' · 搜索结果全部显示')
+    :('共 '+nf(total)+' 个'+label+(wsTop?' · 显示前 '+Math.min(wsTop,total)+' 个':' · 全部显示'));
+}
+function showWsCtrls(on){
+  var n=$('#wsNote'),s=$('#wsTop');
+  if(n)n.style.display=on?'':'none';
+  if(s)s.style.display=on?'':'none';
+}
 function renderPanel(A){
   var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
   /* 列表态限高滚动；会话详情自带散点/明细表滚动区，去掉限高避免嵌套滚动 */
@@ -873,11 +875,13 @@ function renderPanel(A){
       (whd[s.w]=whd[s.w]||{});(whd[s.w][dk]=whd[s.w][dk]||new Array(24).fill(0));
       whd[s.w][dk][d.getHours()]+=r[2];}});
   if(state.ws===null){
-    crumb.style.display='none';tools.style.display='block';
+    crumb.style.display='none';tools.style.display='block';showWsCtrls(true);
     $('#wsTitle').textContent='工作空间活跃分布';
     if(wsMode==='ses'){
-      var sr=A.sess.filter(function(x){return !q||(x.s.t||'').toLowerCase().indexOf(q)>=0;})
+      var srAll=A.sess.filter(function(x){return !q||(x.s.t||'').toLowerCase().indexOf(q)>=0;})
         .sort(function(a,b){return b.tt-a.tt;});
+      setWsNote(srAll.length,'会话');
+      var sr=(q||!wsTop)?srAll:srAll.slice(0,wsTop);
       if(!sr.length){panel.innerHTML='<div class="cap">无匹配的会话</div>';return;}
       panel.innerHTML='<div class="wshead"><span>会话</span><span>Token</span>'
         +'<span>占比 / 轮次</span><span>分布（近 7 个有数据日）</span><span></span></div>'
@@ -889,6 +893,8 @@ function renderPanel(A){
     order.sort(function(a,b){return wsSort==='tokens'
       ?A.ws[b].tt-A.ws[a].tt:(A.ws[b].cnt||0)-(A.ws[a].cnt||0);});
     if(q)order=order.filter(function(w){return WS[w].toLowerCase().indexOf(q)>=0;});
+    setWsNote(order.length,'工作空间');
+    if(!q&&wsTop)order=order.slice(0,wsTop);
     if(!order.length){panel.innerHTML='<div class="cap">'
       +(A.tot?'无匹配的工作空间':'该时间范围内无数据')+'</div>';return;}
     panel.innerHTML='<div class="wshead"><span>工作空间</span><span>Token</span>'
@@ -898,6 +904,7 @@ function renderPanel(A){
         WS[w],A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
         vizCells(whd[w]||{},days,avgD));}).join('');
     return;}
+  showWsCtrls(false);   // 下钻到会话列表/详情时隐藏 TOP 控件与计数
   var entry=null;
   if(state.ses!==null)for(var ei=0;ei<A.sess.length;ei++){
     if(A.sess[ei].i===state.ses){entry=A.sess[ei];break;}}
@@ -1066,6 +1073,9 @@ if(distTopSel)distTopSel.addEventListener('change',function(ev){
 var sessTopSel=$('#sessTop');
 if(sessTopSel)sessTopSel.addEventListener('change',function(ev){
   sessTop=+ev.target.value;if(LASTA)renderSessionTop(LASTA);});
+var wsTopSel=$('#wsTop');
+if(wsTopSel)wsTopSel.addEventListener('change',function(ev){
+  wsTop=+ev.target.value;if(LASTA)renderPanel(LASTA);});
 $('#platSel').addEventListener('change',function(ev){
   platFilter=ev.target.value===''?-1:+ev.target.value;
   selModel=null;state={ws:null,ses:null};renderAll();});
@@ -1297,26 +1307,8 @@ def _model_card(summary: Summary, palette: dict[str, str]) -> str:
             f'<span class="num">{fmt(tokens)}&ensp;·&ensp;{e(vendor_of(m))}&ensp;·&ensp;'
             f'{share:.1f}%</span></div>'
         )
-    # 两条指标行各自以「整条 = 100%」单独填充，静态首屏与 JS 重绘同口径
-    hit = max(0.0, min(100.0, summary.cache_hit_rate))
-    io_total = summary.input_tokens + summary.output_tokens
-    in_pct = summary.input_tokens / io_total * 100 if io_total else 0.0
-    out_pct = 100.0 - in_pct if io_total else 0.0
-    hit_tip = e(f"整条 = 100%（全部输入 token）\n缓存命中 {hit:.1f}%")
-    io_tip = e(f"整条 = 100%（输入 + 输出）\n输入 {in_pct:.1f}% · 输出 {out_pct:.1f}%")
-    metric_rows = (
-        f'<div class="mrow"><span class="nm sans">缓存命中率</span>'
-        f'<span class="track" data-tip="{hit_tip}">'
-        f'<i style="width:{hit:.1f}%;background:var(--brand)"></i></span>'
-        f'<span class="num">{summary.cache_hit_rate:.1f}%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>'
-        f'<div class="mrow"><span class="nm sans">输入 / 输出比</span>'
-        f'<span class="track split" data-tip="{io_tip}">'
-        f'<i style="width:{in_pct:.1f}%;background:var(--brand)"></i>'
-        f'<i style="width:{out_pct:.1f}%;background:var(--bds)"></i></span>'
-        f'<span class="num">{summary.io_ratio:.1f} : 1&ensp;·&ensp;全局 50% '
-        f'{fmt(summary.global_p50)}</span></div>'
-    )
-    return "".join(rows) + metric_rows
+    # 缓存命中率 / 输入·输出比已在 KPI 区呈现，这里不再重复画低区分度的进度条
+    return "".join(rows)
 
 
 def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[str, str]) -> str:
@@ -1630,7 +1622,7 @@ def _workspace_card(summary: Summary) -> str:
     head = ('<div class="wshead"><span>工作空间</span><span>Token</span><span>占比 / 会话</span>'
             '<span>分布（近 7 个有数据日）</span><span></span></div>')
     rows = []
-    for idx, w in enumerate(full[:7]):
+    for idx, w in enumerate(full[:DEFAULT_WS_TOP]):
         info = summary.by_workspace[w]
         sessions = len(summary.ws_sessions.get(w, ()))
         segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 3
@@ -1702,6 +1694,16 @@ def render_html(
         f'{" selected" if value == DEFAULT_SESSION_TOP else ""}>{label}</option>'
         for value, label in ((5, "TOP 5"), (10, "TOP 10"), (0, "全部会话"))
     )
+    ws_opts = "".join(
+        f'<option value="{value}"'
+        f'{" selected" if value == DEFAULT_WS_TOP else ""}>{label}</option>'
+        for value, label in ((5, "TOP 5"), (10, "TOP 10"), (0, "全部工作空间"))
+    )
+    ws_total = len(summary.by_workspace)
+    ws_note = (
+        f"共 {ws_total:,} 个工作空间 · 显示前 {min(DEFAULT_WS_TOP, ws_total)} 个"
+        if ws_total else ""
+    )
 
     payload = _payload(summary, records, palette, prices, generated,
                        window_days, custom_range)
@@ -1737,7 +1739,8 @@ def render_html(
                  .replace("__HEAT_L_JS__", _heat_json("light"))
                  .replace("__HEAT_D_JS__", _heat_json("dark"))
                  .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP))
-                 .replace("__SESS_TOP__", str(DEFAULT_SESSION_TOP)))
+                 .replace("__SESS_TOP__", str(DEFAULT_SESSION_TOP))
+                 .replace("__WS_TOP__", str(DEFAULT_WS_TOP)))
     replacements = {
         "__TITLE__": e(title),
         "__SUBTITLE__": subtitle,
@@ -1748,6 +1751,8 @@ def render_html(
         "__PLATOPTS__": plat_opts,
         "__SESSOPTS__": sess_opts,
         "__SESS_TOP__": str(DEFAULT_SESSION_TOP),
+        "__WSOPTS__": ws_opts,
+        "__WSNOTE__": ws_note,
         "__SESSION_TOP__": "",
         "__HERO__": hero,
         "__KPIS__": kpis,
