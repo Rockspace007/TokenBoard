@@ -267,8 +267,11 @@ __HERO__
 <span class="hdnote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
 <div id="sessionTop">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
-<div class="card"><h3>0—24 时分布 · 按模型&ensp;<span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span></h3>
-<span class="hdnote">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
+<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span>
+<select class="mini" id="hourMode" aria-label="0—24 时分布口径" style="margin-left:auto">
+<option value="win" selected>窗口累计</option><option value="today">仅当日</option></select></div>
+<span class="hdnote" id="hourSub">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
 <div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
 <h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
 <select class="mini" id="distTop" aria-label="显示模型数量" style="margin-left:auto">
@@ -304,6 +307,7 @@ var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode=
 var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
+var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅生成当日逐时
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -365,10 +369,11 @@ function orderByTokens(A){return models.map(function(m,i){return i;})
 
 /* ---------------- 聚合（与 Python 口径一致） ---------------- */
 function aggregate(){
-  var lo=cutLo(),hi=cutHi();
+  var lo=cutLo(),hi=cutHi(),todayKey=fm(todayDate());
   var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,
     daily:{},dm:{},mt:new Array(models.length).fill(0),
-    hb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
+    /* thb = 仅「生成当日」的按模型逐时消耗，供 0—24 时分布「仅当日」口径使用 */
+    hb:{},thb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
   for(var si=0;si<SESS.length;si++){
     var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
     var st=0,sn=0,first=0,last=0,rs=[];
@@ -383,6 +388,7 @@ function aggregate(){
       (A.dm[dk]=A.dm[dk]||{})[r[1]]=(A.dm[dk][r[1]]||0)+r[2];
       A.mt[r[1]]+=r[2];A.bands[Math.min(3,Math.floor(h/6))]+=r[2];
       (A.hb[r[1]]=A.hb[r[1]]||new Array(24).fill(0))[h]+=r[2];
+      if(dk===todayKey)(A.thb[r[1]]=A.thb[r[1]]||new Array(24).fill(0))[h]+=r[2];
       (A.ws[s.w]=A.ws[s.w]||{tt:0,cnt:0});A.ws[s.w].tt+=r[2];
       if(r[2]>0){(A.sizes[r[1]]=A.sizes[r[1]]||[]).push(r[2]);A.all.push(r[2]);}
       st+=r[2];sn++;if(!first)first=r[0];last=r[0];}
@@ -577,17 +583,31 @@ function renderModelTotals(A){
 
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
-  var hn=$('#hourNote');
-  if(hn)hn.textContent=win?('周期 '+winLabel()+' · 截至 '+fm(todayDate())
-    +'（含当日）· 同一时段跨日累加，非当日曲线')
-    :'自定义窗口 · 同一时段跨日累加，非当日曲线';
-  var top=orderByTokens(A).slice(0,2);
-  if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';hourCtx=[];return;}
+  var isToday=hourMode==='today',dayStr=fm(todayDate());
+  var src=isToday?A.thb:A.hb;
+  var hn=$('#hourNote'),hs=$('#hourSub');
+  if(hn)hn.textContent=isToday
+    ?('仅 '+dayStr+' 当日 · 0—23 时逐时消耗（尚未到的时段为 0）')
+    :(win?('周期 '+winLabel()+' · 截至 '+dayStr+'（含当日）· 同一时段跨日累加，非当日曲线')
+      :'自定义窗口 · 同一时段跨日累加，非当日曲线');
+  if(hs)hs.textContent=(isToday
+    ?'每条曲线 = 当日该时段的实际消耗 · 未来时段为 0'
+    :'每条曲线 = 窗口内所有天在同一时段的消耗总和')
+    +' · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗';
+  function sum(s){return s?s.reduce(function(a,b){return a+b;},0):0;}
+  /* 仅当日按当日消耗重选 TOP 2，避免「今天活跃的模型」被窗口总量挤掉 */
+  var top=isToday
+    ?models.map(function(m,i){return i;}).filter(function(i){return sum(src[i])>0;})
+       .sort(function(a,b){return sum(src[b])-sum(src[a]);}).slice(0,2)
+    :orderByTokens(A).slice(0,2);
+  if(!top.length){$('#hourChart').innerHTML='<div class="cap">'
+    +(isToday?dayStr+' 当日暂无请求（可切回「窗口累计」查看历史）':'暂无数据')+'</div>';
+    hourCtx=[];return;}
   hourCtx=top.map(function(mi){return {name:models[mi],vendor:VENDOR[mi]||'',
-    series:(A.hb[mi]||new Array(24).fill(0)).slice()};});
+    series:(src[mi]||new Array(24).fill(0)).slice()};});
   var W=1240,base=150;
   var peak=niceMax(Math.max.apply(null,top.map(function(mi){
-    return Math.max.apply(null,A.hb[mi]||new Array(24).fill(0));})));
+    return Math.max.apply(null,src[mi]||new Array(24).fill(0));})));
   var step=W/24,out=['<svg viewBox="0 0 '+W+' '+(base+34)
     +'" role="img" aria-label="0—24 时按模型分布">'];
   [0.2,0.55].forEach(function(fr){var y=base-fr*(base-12);
@@ -598,7 +618,7 @@ function renderHour(A){
   out.push('<line x1="0" y1="'+base+'" x2="'+W+'" y2="'+base
     +'" stroke="var(--bds)" stroke-width="1"/>');
   top.forEach(function(mi,i){
-    var series=A.hb[mi]||new Array(24).fill(0);
+    var series=src[mi]||new Array(24).fill(0);
     var pts=series.map(function(v,h){return [h*step,base-v/peak*(base-12)];});
     var line=smoothLine(pts);
     var dim=selModel!==null&&selModel!==mi;
@@ -607,7 +627,7 @@ function renderHour(A){
       +'" fill-opacity="'+(i===0?0.16:0.12)+'" stroke="none"/>'
       +'<path d="'+line+'" fill="none" stroke="'+pal(mi)+'" stroke-width="2"/>'
       +'<path d="'+line+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="8" data-tip="'
-      +esc(models[mi]+'\n24h 合计 '+fmt(A.mt[mi]))+'"/></g>');});
+      +esc(models[mi]+'\n'+(isToday?'当日':'24h')+' 合计 '+fmt(sum(series))+' token')+'"/></g>');});
   for(var h=0;h<24;h+=2)out.push('<text x="'+(h*step+6).toFixed(1)+'" y="'+(base+22)
     +'" fill="var(--t3)" font-size="10">'+h+'时</text>');
   out.push('</svg>');
@@ -981,6 +1001,9 @@ document.addEventListener('click',function(ev){
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
 $('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+var hourModeSel=$('#hourMode');
+if(hourModeSel)hourModeSel.addEventListener('change',function(ev){
+  hourMode=ev.target.value;if(LASTA)renderHour(LASTA);});
 var distTopSel=$('#distTop');
 if(distTopSel)distTopSel.addEventListener('change',function(ev){
   distTop=+ev.target.value;if(LASTA)renderDist(LASTA);});
