@@ -24,7 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Sequence
 
-from .aggregate import Summary
+from .aggregate import DEFAULT_DIST_TOP, Summary
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
 from .models import SourceStatus, UsageRecord
 from .pricing import price_of
@@ -267,9 +267,14 @@ __HERO__
 <span class="hdnote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
 <div id="sessionTop">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
-<div class="card"><h3>0—24 时分布 · 按模型</h3>
+<div class="card"><h3>0—24 时分布 · 按模型&ensp;<span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 逐时累加窗口内请求</span></h3>
 <span class="hdnote">点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
-<div class="card"><h3>单次请求大小分布&ensp;<span class="hdnote" id="distNote"></span></h3>
+<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
+<select class="mini" id="distTop" aria-label="显示模型数量" style="margin-left:auto">
+<option value="2">TOP 2</option><option value="3" selected>TOP 3</option>
+<option value="5">TOP 5</option><option value="8">TOP 8</option>
+<option value="0">全部模型</option></select></div>
 <div id="distBody">__REQDIST__</div></div>
 <div class="card"><h3>日活分布&ensp;<span class="hdnote">色深代表当日该小时的消耗强度 · 悬浮看数值</span></h3>
 <div id="dayhourCard">__DAYHOUR__</div></div>
@@ -288,11 +293,17 @@ var DARK=document.body.dataset.theme==='dark',HEAT=DARK?HEAT_D:HEAT_L;
 var models=D.models||[],PAL=D.palette||[],VENDOR=D.vendor||[],PRICE=D.prices||[];
 var WS=D.workspaces||[],SESS=D.sessions||[],PLAT=D.platforms||[];
 var genMin=D.genMin||0;
+/* dayAnchor = 生成当日结束（次日 00:00，分钟）。周期窗口与日活热力都以它为锚，
+   保证「近 N 天」始终是含当日的 N 个自然日，而不是最后一条日志往前的滚动 168 小时。
+   兼容旧页面：没有 dayAnchor 时退回 genMin。 */
+var dayAnchor=D.dayAnchor||genMin;
+function todayDate(){return new Date((dayAnchor-1440)*60000);} // 当日 00:00
 var win=(D.win!=null?D.win:30),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
 if(D.custom)win=0;
 var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
 var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
+var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -343,7 +354,9 @@ function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=
 function winLabel(){return win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口';}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
-function cutLo(){return win?genMin-win*1440:(cLo||0);}
+/* 近 N 天 = 含生成当日在内的 N 个自然日：[当日-(N-1)天 00:00, ∞)。
+   右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。 */
+function cutLo(){return win?dayAnchor-win*1440:(cLo||0);}
 function cutHi(){return (!win&&cHi)?cHi:Infinity;}
 function inWin(tsMin){return tsMin>=cutLo()&&tsMin<cutHi();}
 function orderByTokens(A){return models.map(function(m,i){return i;})
@@ -564,6 +577,10 @@ function renderModelTotals(A){
 
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
+  var hn=$('#hourNote');
+  if(hn)hn.textContent=win?('周期 '+winLabel()+' · 以 '+fm(todayDate())
+    +'（生成当日）为基准 · 逐时累加窗口内请求')
+    :'自定义日期窗口 · 逐时累加窗口内请求';
   var top=orderByTokens(A).slice(0,2);
   if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';hourCtx=[];return;}
   hourCtx=top.map(function(mi){return {name:models[mi],vendor:VENDOR[mi]||'',
@@ -607,11 +624,11 @@ function renderDist(A){
   var order=models.map(function(m,i){return i;})
     .filter(function(i){return A.sizes[i]&&A.sizes[i].length;})
     .sort(function(a,b){return A.mt[b]-A.mt[a];});
-  var top=order.slice(0,2);
+  var top=distTop>0?order.slice(0,distTop):order;
   if(!top.length){$('#distBody').innerHTML='<div class="cap">暂无数据</div>';
     $('#distNote').textContent='';return;}
-  $('#distNote').textContent='TOP '+top.length+' 模型 · 共 '
-    +nf(top.reduce(function(a,mi){return a+A.sizes[mi].length;},0))+' 次';
+  $('#distNote').textContent=(distTop>0?'TOP '+top.length:'全部 '+top.length)
+    +' 模型 · 共 '+nf(top.reduce(function(a,mi){return a+A.sizes[mi].length;},0))+' 次';
   var cap90=Math.max.apply(null,top.map(function(mi){return pctile(A.sizes[mi],90);}))||1;
   var head='<div class="dhead drow" style="border-bottom:1px solid var(--bd)"><span>模型</span>'
     +'<span>次数</span><span>50%</span><span>90%</span></div>';
@@ -637,16 +654,22 @@ function renderDist(A){
     var dim=selModel!==null&&selModel!==mi;
     var s50=pctile(A.sizes[mi],50),s90=pctile(A.sizes[mi],90);
     var tipTxt=esc(models[mi]+'\n'+nf(A.sizes[mi].length)+' 次 · 50% '+fmt(s50)+' · 90% '+fmt(s90));
+    var p90x=(s90/hi*width).toFixed(1),p90y=(base-curY(sm,s90,hi)*(base-16)).toFixed(1);
+    var p90Tip=esc(models[mi]+'\n90% 的请求单次 ≤ '+fmt(s90)+' token\n'
+      +'共 '+nf(A.sizes[mi].length)+' 次 · 50% '+fmt(s50)+' token');
     svg.push('<g opacity="'+(dim?0.25:1)+'">'
       +'<path d="'+line+' L'+width+','+base+' L0,'+base+' Z" fill="'+pal(mi)
       +'" fill-opacity="0.14"/>'
       +'<path d="'+line+'" fill="none" stroke="'+pal(mi)+'" stroke-width="2"/>'
       +'<line x1="'+(s50/hi*width).toFixed(1)+'" y1="26" x2="'+(s50/hi*width).toFixed(1)
       +'" y2="'+base+'" stroke="'+pal(mi)+'" stroke-width="1.5" stroke-opacity=".8"/>'
-      +'<circle cx="'+(s90/hi*width).toFixed(1)+'" cy="'
-      +(base-curY(sm,s90,hi)*(base-16)).toFixed(1)+'" r="3.5" fill="#8A9A90"/>'
       +'<path d="'+line+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="8" data-tip="'
-      +tipTxt+'"/></g>');});
+      +tipTxt+'"/>'
+      /* p90 点跟随模型色 + 白描边，单独置于上层；透明大圆扩大命中区并给出专属说明 */
+      +'<circle cx="'+p90x+'" cy="'+p90y+'" r="4" fill="'+pal(mi)
+      +'" stroke="#fff" stroke-width="1.5"/>'
+      +'<circle cx="'+p90x+'" cy="'+p90y+'" r="11" fill="transparent" pointer-events="all" '
+      +'data-tip="'+p90Tip+'"/></g>');});
   var gx=A.gp50/hi*width;
   svg.push('<line x1="'+gx.toFixed(1)+'" y1="14" x2="'+gx.toFixed(1)+'" y2="'+base
     +'" stroke="var(--t3)" stroke-width="1" stroke-dasharray="4 4"/>');
@@ -658,7 +681,7 @@ function renderDist(A){
   svg.push('</svg>');
   $('#distBody').innerHTML='<div class="distwrap"><div>'+head+left+'</div><div>'+svg.join('')
     +'<div class="cap" style="margin-top:8px">每模型一条分布形状（各自归一）· '
-    +'实线=该模型 50% · 灰点=90% · 虚线=全局 50% · '
+    +'实线=该模型 50% · 同色圆点=该模型 90%（悬浮看数值）· 虚线=全局 50% · '
     +'数值下条形=两列共享刻度的大小对比（深=50% 浅=90%）</div></div></div>';
 }
 
@@ -672,8 +695,12 @@ function renderHeat(A){
   if(!dayKeys.length){$('#dayhourCard').innerHTML=
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
     +seg+'</div><div class="cap">该时间范围内无数据</div>';return;}
-  /* 锚定最后一个有数据日，向前取自然日序列（含空窗日，诚实显示） */
-  var anchor=new Date(dayKeys[dayKeys.length-1]+'T00:00:00');
+  /* 常规「近 N 天」锚定「生成当日」向前取自然日序列（含空窗日，诚实显示）；
+     自定义历史日期窗口仍锚定窗口内最后有数据日，否则热力图会整片落在窗口之外。
+     数据里存在更晚的日期（如导入未来时间戳）时以数据末日为准，避免被截断。 */
+  var lastData=new Date(dayKeys[dayKeys.length-1]+'T00:00:00');
+  var today=todayDate();
+  var anchor=win?(today.getTime()>lastData.getTime()?today:lastData):lastData;
   function daySeq(n){var out=[];
     for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
     return out;}
@@ -954,6 +981,9 @@ document.addEventListener('click',function(ev){
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
 $('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+var distTopSel=$('#distTop');
+if(distTopSel)distTopSel.addEventListener('change',function(ev){
+  distTop=+ev.target.value;if(LASTA)renderDist(LASTA);});
 $('#platSel').addEventListener('change',function(ev){
   platFilter=ev.target.value===''?-1:+ev.target.value;
   selModel=null;state={ws:null,ses:null};renderAll();});
@@ -1103,6 +1133,15 @@ def _payload(
         p = price_of(m, prices)
         price_table.append([p.input, p.output, p.cache_read])
     last_ts = summary.last_ts or int(datetime.now().timestamp())
+    # 生成当日结束（次日 00:00，本地时区）作为周期窗口与日活热力的锚点。
+    # 从 generated 字符串解析，保证与页眉「数据截至」展示的是同一天；
+    # 旧口径 genMin 锚定最后一条日志，日志停在几天前时「近 N 天」不会跟到当天。
+    try:
+        gen_dt = datetime.strptime(generated, "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        gen_dt = datetime.now()
+    day_end = datetime(gen_dt.year, gen_dt.month, gen_dt.day) + timedelta(days=1)
+    day_anchor = int(day_end.timestamp()) // 60
     custom = None
     if custom_range and (custom_range[0] or custom_range[1]):
         lo = custom_range[0] // 60 if custom_range[0] else 0
@@ -1111,6 +1150,7 @@ def _payload(
     return {
         "gen": generated,
         "genMin": last_ts // 60,
+        "dayAnchor": day_anchor,
         "win": window_days_ if window_days_ is not None else (None if custom else 30),
         "custom": custom,
         "models": models,
@@ -1319,7 +1359,8 @@ def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
 
 
 def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
-    dist = summary.distribution(top=2)
+    # 与页面 #distTop 下拉的默认值保持一致（默认 TOP 3）
+    dist = summary.distribution(top=DEFAULT_DIST_TOP)
     models_ = [d for d in dist["models"] if d["count"]]
     if not models_:
         return '<div class="cap">暂无数据</div>'
@@ -1375,7 +1416,14 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
             return hist[low] * (1 - frac) + hist[high] * frac
 
         y90 = base - curve_y(hists[d["name"]], d["p90"]) * (base - 16)
-        parts.append(f'<circle cx="{d["p90"] / hi * width:.1f}" cy="{y90:.1f}" r="3.5" fill="#8A9A90"/>')
+        cx90 = d["p90"] / hi * width
+        # p90 点跟随模型色 + 白描边；透明大圆扩大命中区，悬停给出专属说明
+        p90_tip = e(f'{d["name"]}\n90% 的请求单次 ≤ {fmt(d["p90"])} token\n'
+                    f'共 {d["count"]:,} 次 · 50% {fmt(d["p50"])} token')
+        parts.append(f'<circle cx="{cx90:.1f}" cy="{y90:.1f}" r="4" '
+                     f'fill="{e(color)}" stroke="#fff" stroke-width="1.5"/>')
+        parts.append(f'<circle cx="{cx90:.1f}" cy="{y90:.1f}" r="11" fill="transparent" '
+                     f'pointer-events="all" data-tip="{p90_tip}"/>')
     gx = dist["global_p50"] / hi * width
     parts.append(f'<line x1="{gx:.1f}" y1="14" x2="{gx:.1f}" y2="{base}" '
                  'stroke="var(--t3)" stroke-width="1" stroke-dasharray="4 4"/>')
@@ -1386,7 +1434,8 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
         parts.append(f'<text x="{width * frac:.1f}" y="{base + 20}" fill="var(--t3)" '
                      f'font-size="10"{anchor}>{"0" if frac == 0 else fmt(hi * frac)}</text>')
     parts.append("</svg>")
-    caption = ("每模型一条分布形状（各自归一）· 实线=该模型 50% · 灰点=90% · 虚线=全局 50% · "
+    caption = ("每模型一条分布形状（各自归一）· 实线=该模型 50% · "
+               "同色圆点=该模型 90%（悬浮看数值）· 虚线=全局 50% · "
                "数值下条形=两列共享刻度的大小对比（深=50% 浅=90%）")
     return (
         f'<div class="distwrap"><div>{left}</div><div>{"".join(parts)}'
@@ -1394,7 +1443,7 @@ def _request_size_card(summary: Summary, palette: dict[str, str]) -> str:
     )
 
 
-def _dayhour_card(summary: Summary) -> str:
+def _dayhour_card(summary: Summary, heat_anchor: str | None) -> str:
     if not summary.hour_matrix:
         return '<div class="cap">暂无数据</div>'
     band_total = sum(summary.bands) or 1
@@ -1404,8 +1453,17 @@ def _dayhour_card(summary: Summary) -> str:
         for n, v in zip(band_names, summary.bands)
     )
     data_days = sorted(summary.hour_matrix)
-    anchor = datetime.strptime(data_days[-1], "%Y-%m-%d")
-    # 静态首屏与 JS 日视图同构：最近 7 个自然日（含空窗日，诚实显示），旧→新
+    last_data = datetime.strptime(data_days[-1], "%Y-%m-%d")
+    # 与 JS 日视图同构：常规窗口锚定「生成当日」向前 7 个自然日（含空窗日，诚实显示）；
+    # 自定义历史窗口时 heat_anchor 为 None，锚定窗口内最后有数据日，避免视图落在窗口外。
+    if heat_anchor:
+        try:
+            gen_day = datetime.strptime(heat_anchor, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            gen_day = last_data
+        anchor = max(gen_day, last_data)
+    else:
+        anchor = last_data
     days = [(anchor - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
     peak = max((v for d in days for v in summary.hour_matrix.get(d, (0,) * 24)), default=0) or 1
     # 日期文字与热力格放进同一张 SVG（整体缩放后天然对齐），小时刻度精确落在
@@ -1559,6 +1617,13 @@ def render_html(
     )
     subtitle = f"请求级真实 usage · 多平台统一口径 · 数据截至 {e(generated)}"
 
+    # 无 JS 时静态首屏的卡片说明；数字与 JS renderDist 的默认 TOP 3 口径一致。
+    dist_rows = [d for d in summary.distribution(top=DEFAULT_DIST_TOP)["models"] if d["count"]]
+    dist_note = (
+        f"TOP {len(dist_rows)} 模型 · 共 {sum(d['count'] for d in dist_rows):,} 次"
+        if dist_rows else ""
+    )
+
     css = (
         _CSS.replace("__SANS__", _SANS)
         .replace("__MONO__", _MONO)
@@ -1569,7 +1634,8 @@ def render_html(
     )
     script_js = (_SCRIPT
                  .replace("__HEAT_L_JS__", _heat_json("light"))
-                 .replace("__HEAT_D_JS__", _heat_json("dark")))
+                 .replace("__HEAT_D_JS__", _heat_json("dark"))
+                 .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP)))
     replacements = {
         "__TITLE__": e(title),
         "__SUBTITLE__": subtitle,
@@ -1590,8 +1656,9 @@ def render_html(
         "__SOURCES__": _sources_card(statuses),
         "__MODEL_TOTALS__": _model_totals_card(summary, palette),
         "__HOURLY__": _hourly_card(summary, palette),
+        "__DISTNOTE__": dist_note,
         "__REQDIST__": _request_size_card(summary, palette),
-        "__DAYHOUR__": _dayhour_card(summary),
+        "__DAYHOUR__": _dayhour_card(summary, None if custom_range else generated[:10]),
         "__WORKSPACES__": _workspace_card(summary),
         "__FOOTER__": footer,
         "__DATA__": data_js,

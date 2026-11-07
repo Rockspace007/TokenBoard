@@ -86,7 +86,7 @@ mkdir -p ~/.workbuddy/skills
 tar -xzf dist/tokenboard-skill.tgz -C ~/.workbuddy/skills
 
 # 方式二：直接 clone 仓库
-git clone <repo> ~/.workbuddy/skills/tokenboard
+git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tokenboard
 ```
 
 ## 致谢

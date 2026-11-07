@@ -15,6 +15,9 @@ from .brands import palette_for, vendor_of
 from .models import UsageRecord
 from .pricing import cost_cny
 
+# 「单次请求大小分布」默认展示的模型数：静态首屏、JSON 输出、页面下拉共用。
+DEFAULT_DIST_TOP = 3
+
 
 def percentile(values: Sequence[int | float], q: float) -> float:
     """线性插值分位数；``q`` 取 0~100，空序列返回 0.0。"""
@@ -116,8 +119,11 @@ class Summary:
             "active_days": self.active_days,
         }
 
-    def distribution(self, top: int = 4) -> dict[str, Any]:
-        """单次请求大小分布：TOP 模型的次数 / 50% / 90%，外加全局 50%。"""
+    def distribution(self, top: int = DEFAULT_DIST_TOP) -> dict[str, Any]:
+        """单次请求大小分布：TOP 模型的次数 / 50% / 90%，外加全局 50%。
+
+        默认 5 与看板「单次请求大小分布」下拉的默认值一致。
+        """
         items = []
         for name in self.models[:top]:
             sizes = self.model_sizes.get(name, [])
