@@ -24,7 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Sequence
 
-from .aggregate import DEFAULT_DIST_TOP, Summary
+from .aggregate import DEFAULT_DIST_TOP, DEFAULT_SESSION_TOP, Summary
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
 from .models import SourceStatus, UsageRecord
 from .pricing import price_of
@@ -109,6 +109,12 @@ text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .mrow.dim .nm,.mrow.dim .num{opacity:.45}
 .mrow .track{height:12px;background:var(--surface2);border-radius:8px;overflow:hidden}
 .mrow .track i{display:block;height:100%;border-radius:8px;transition:opacity .15s}
+/* 输入/输出构成条：两段加起来正好 100%，各自不被 flex 压缩 */
+.mrow .track.split{display:flex}
+.mrow .track.split i{flex:none;border-radius:0}
+.mrow .track.split i:first-child{border-radius:8px 0 0 8px}
+.mrow .track.split i:last-child{border-radius:0 8px 8px 0}
+.mrow .track[data-tip]{cursor:help}
 .mrow .num{font-family:var(--mono);font-size:10.5px;color:var(--t2);text-align:right;
 font-variant-numeric:tabular-nums;white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:3px;flex:none;display:inline-block;vertical-align:-1px}
@@ -170,6 +176,16 @@ gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--bd);font
 border-radius:5px;padding:1px 5px;margin-left:6px;vertical-align:middle;font-family:var(--mono)}
 .wviz{display:flex;gap:2px;height:9px;align-items:stretch}
 .wviz i{flex:1;border-radius:2px}
+/* ---- 长列表滚动：表头吸顶，内容不足时自动不出现滚动条 ---- */
+.scrollbox{max-height:380px;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;
+scrollbar-width:thin;scrollbar-color:var(--bds) transparent}
+.scrollbox::-webkit-scrollbar{width:9px}
+.scrollbox::-webkit-scrollbar-track{background:transparent}
+.scrollbox::-webkit-scrollbar-thumb{background:var(--bds);border-radius:9px;
+border:2px solid var(--surface)}
+.scrollbox::-webkit-scrollbar-thumb:hover{background:var(--brand)}
+.scrollbox .wshead,.scrollbox .sthead{position:sticky;top:0;z-index:2;
+background:var(--surface);box-shadow:0 1px 0 var(--bd)}
 /* ---- 指标切换（按 Token / 按金额） ---- */
 .seg{display:inline-flex;border:1px solid var(--bd);border-radius:10px;background:var(--surface);
 padding:3px;gap:2px}
@@ -262,10 +278,12 @@ __HERO__
 <option value="1">1X</option><option value="2">2X</option>
 <option value="3" selected>3X</option><option value="4">4X</option>
 <option value="6">6X</option><option value="8">8X</option></select></div></div>
-<div id="wsPanel">__WORKSPACES__</div></div>
-<div class="card"><h3>会话消耗 Top 10</h3>
-<span class="hdnote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
-<div id="sessionTop">__SESSION_TOP__</div></div>
+<div id="wsPanel" class="scrollbox">__WORKSPACES__</div></div>
+<div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+<h3 id="sessTitle">会话消耗 Top __SESS_TOP__</h3>
+<span class="hdnote" id="sessNote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
+<select class="mini" id="sessTop" aria-label="显示会话数量" style="margin-left:auto">__SESSOPTS__</select></div>
+<div id="sessionTop" class="scrollbox">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
 <div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
 <h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span>
@@ -307,6 +325,7 @@ var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode=
 var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
+var sessTop=__SESS_TOP__;  // 会话消耗榜显示的条数（0=全部），与 Python 常量同源
 var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅生成当日逐时
 var LASTA=null;
 
@@ -487,9 +506,19 @@ function modelRows(A){
       +'%;background:'+pal(mi)+'"></i></span>'
       +'<span class="num">'+fmt(A.mt[mi])+'&ensp;·&ensp;'+esc(VENDOR[mi]||'')+'&ensp;·&ensp;'
       +pct(A.mt[mi],A.tot).toFixed(1)+'%</span></div>';});
-  rows+='<div class="mrow"><span class="nm sans">缓存命中率</span><span class="track"></span>'
-    +'<span class="num">'+pct(A.ch,A.inp).toFixed(1)+'%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>';
-  rows+='<div class="mrow"><span class="nm sans">输入 / 输出比</span><span class="track"></span>'
+  /* 两条指标行各自以「整条 = 100%」为满刻度单独填充，不与上方模型条共用归一化基准 */
+  var hit=Math.max(0,Math.min(100,pct(A.ch,A.inp)));
+  rows+='<div class="mrow"><span class="nm sans">缓存命中率</span>'
+    +'<span class="track" data-tip="'+esc('整条 = 100%（全部输入 token）\n缓存命中 '
+    +hit.toFixed(1)+'%')+'"><i style="width:'+hit.toFixed(1)
+    +'%;background:var(--brand)"></i></span>'
+    +'<span class="num">'+hit.toFixed(1)+'%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>';
+  var io=A.inp+A.out,ip=io?pct(A.inp,io):0,op=io?pct(A.out,io):0;
+  rows+='<div class="mrow"><span class="nm sans">输入 / 输出比</span>'
+    +'<span class="track split" data-tip="'+esc('整条 = 100%（输入 + 输出）\n输入 '
+    +ip.toFixed(1)+'% · 输出 '+op.toFixed(1)+'%')+'">'
+    +'<i style="width:'+ip.toFixed(1)+'%;background:var(--brand)"></i>'
+    +'<i style="width:'+op.toFixed(1)+'%;background:var(--bds)"></i></span>'
     +'<span class="num">'+(A.out?Math.round(A.inp/A.out):0)+' : 1&ensp;·&ensp;全局 50% '
     +fmt(A.gp50)+'</span></div>';
   return rows;
@@ -724,6 +753,12 @@ function renderHeat(A){
   function daySeq(n){var out=[];
     for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
     return out;}
+  /* 月视图 = 锚点所在自然月的 1 日 → 月末（而非从今天倒推 30 天）。
+     尚未到达的日期画成虚线空格，明确留空、不参与占比与色阶计算。 */
+  function monthDays(a){return new Date(a.getFullYear(),a.getMonth()+1,0).getDate();}
+  function monthSeq(a){var y=a.getFullYear(),m=a.getMonth(),out=[];
+    for(var d=1;d<=monthDays(a);d++)out.push(fm(new Date(y,m,d)));
+    return out;}
   var bandTotal=A.bands.reduce(function(a,b){return a+b;},0)||1;
   var names=['凌晨 0—6','上午 6—12','下午 12—18','晚间 18—24'];
   var chips='<div class="chips">'+A.bands.map(function(v,i){
@@ -731,7 +766,7 @@ function renderHeat(A){
       +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
   var note=heatView==='day'?'每行一个自然日 · 每格一小时 · 空窗日留白 · 悬浮看数值'
     :heatView==='week'?'最近 7 个自然日 · 每格一天的消耗 · 悬浮看数值'
-    :'最近 30 个自然日 · 每格一天的消耗 · 悬浮看数值';
+    :'本月 1 日起共 '+monthDays(anchor)+' 天 · 每格一天的消耗 · 未来日期留空 · 悬浮看数值';
   var head='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
     +seg+'<span class="hdnote" style="margin-left:auto">'+esc(note)+'</span></div>';
   var sw=HEAT.map(function(c){return '<i style="background:'+c+'"></i>';}).join('');
@@ -762,27 +797,39 @@ function renderHeat(A){
     svg.push('</svg>');
     body=svg.join('');
   }else{
-    var n=heatView==='week'?7:30;
-    var seq=daySeq(n);
-    var total=seq.reduce(function(a,dk){return a+(A.daily[dk]?A.daily[dk].tt:0);},0)||1;
-    var peak=1;seq.forEach(function(dk){var v=A.daily[dk]?A.daily[dk].tt:0;if(v>peak)peak=v;});
+    var seq=heatView==='week'?daySeq(7):monthSeq(anchor);
+    var n=seq.length,anchorKey=fm(anchor);
+    var shareLabel=heatView==='week'?'近 7 天':'当月';
+    var total=0,peak=1;
+    seq.forEach(function(dk){
+      if(dk>anchorKey)return;               // 未到达的日期不参与占比与色阶
+      var v=A.daily[dk]?A.daily[dk].tt:0;
+      total+=v;if(v>peak)peak=v;});
+    total=total||1;
     var cw=heatView==='week'?132:34,g=heatView==='week'?12:6;
     var width=n*(cw+g)-g,H=heatView==='week'?78:56;
     var svg=['<svg viewBox="0 0 '+width+' '+H+'" role="img" aria-label="'
-      +(heatView==='week'?'近 7 天每日消耗':'近 30 天每日消耗')+'">'];
+      +(heatView==='week'?'近 7 天每日消耗':'当月 1 日起每日消耗')+'">'];
     seq.forEach(function(dk,i){
-      var v=A.daily[dk]?A.daily[dk].tt:0;
+      var future=dk>anchorKey;
+      var v=future?0:(A.daily[dk]?A.daily[dk].tt:0);
       var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
       var x=i*(cw+g),ch=heatView==='week'?44:30,y=heatView==='week'?24:8;
-      svg.push('<rect x="'+x+'" y="'+y+'" width="'+cw+'" height="'+ch+'" rx="6" fill="'
-        +HEAT[lv]+'" data-tip="'+esc(dk+'\n'+nf(v)+' token（占'+n+' 天 '
-        +pct(v,total).toFixed(1)+'%）')+'"/>');
+      if(future){
+        svg.push('<rect x="'+x+'" y="'+y+'" width="'+cw+'" height="'+ch+'" rx="6" '
+          +'fill="none" stroke="var(--bd)" stroke-width="1" stroke-dasharray="3 3" '
+          +'opacity=".7" data-tip="'+esc(dk+'\n尚未到达')+'"/>');
+      }else{
+        svg.push('<rect x="'+x+'" y="'+y+'" width="'+cw+'" height="'+ch+'" rx="6" fill="'
+          +HEAT[lv]+'" data-tip="'+esc(dk+'\n'+nf(v)+' token（占'+shareLabel+' '
+          +pct(v,total).toFixed(1)+'%）')+'"/>');
+      }
       if(heatView==='week'){
         svg.push('<text x="'+(x+cw/2)+'" y="14" fill="var(--t3)" font-size="9.5" '
           +'text-anchor="middle">'+esc(dk.slice(5))+'</text>');
         if(v>0)svg.push('<text x="'+(x+cw/2)+'" y="'+(y+ch/2+4)+'" fill="var(--t1)" '
           +'font-size="10.5" font-weight="700" text-anchor="middle">'+fmt(v)+'</text>');
-      }else if(i%5===0){
+      }else if(i%5===0||i===n-1){
         svg.push('<text x="'+(x+cw/2)+'" y="'+(H-2)+'" fill="var(--t3)" font-size="8.5" '
           +'text-anchor="middle">'+esc(dk.slice(5))+'</text>');
       }});
@@ -814,6 +861,8 @@ function rowHtml(attrs,nm,tk,share,sub,viz){
     +'<span class="wviz">'+viz+'</span><span class="chev">›</span></div>';}
 function renderPanel(A){
   var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
+  /* 列表态限高滚动；会话详情自带散点/明细表滚动区，去掉限高避免嵌套滚动 */
+  if(panel)panel.classList.add('scrollbox');
   var days=Object.keys(A.hm).sort().slice(-7);
   var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
   var whd={};
@@ -866,6 +915,7 @@ function renderPanel(A){
       x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,days,avgD));}).join('');
     return;}
   var s=entry;
+  if(panel)panel.classList.remove('scrollbox');
   crumb.innerHTML='<button class="chip on" data-a="up">← 返回</button>'
     +'<span class="path"><a data-a="root" style="cursor:pointer;'
     +'text-decoration:underline dotted">'+esc(WS[state.ws])+'</a>'
@@ -925,12 +975,18 @@ function drawTable(s){
     +'<th>合计</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
-/* ---------------- 会话 Top 10 ---------------- */
+/* ---------------- 会话消耗榜（TOP 5 / 10 / 全部） ---------------- */
 function renderSessionTop(A){
   var el=$('#sessionTop');if(!el)return;
-  var rows=A.sess.slice().sort(function(a,b){return b.tt-a.tt;}).slice(0,10);
+  var all=A.sess.slice().sort(function(a,b){return b.tt-a.tt;});
+  var ttl=$('#sessTitle'),note=$('#sessNote');
+  if(ttl)ttl.textContent=sessTop?('会话消耗 Top '+sessTop):'会话消耗 · 全部会话';
+  if(note)note.textContent='共 '+nf(all.length)+' 个会话'
+    +(sessTop?' · 显示前 '+Math.min(sessTop,all.length)+' 个':' · 全部显示')
+    +' · 点击行查看会话详情';
+  var rows=sessTop?all.slice(0,sessTop):all;
   if(!rows.length){el.innerHTML='<div class="cap">该筛选条件下无会话</div>';return;}
-  el.innerHTML='<div class="strow"><span class="nm">会话</span><span class="plat">平台</span>'
+  el.innerHTML='<div class="strow sthead"><span class="nm">会话</span><span class="plat">平台</span>'
     +'<span class="wsn">工作空间</span><span class="tk">Token</span><span class="sh">占比 / 轮次</span></div>'
     +rows.map(function(x){return '<div class="strow click" data-si="'+x.i
       +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
@@ -1007,6 +1063,9 @@ if(hourModeSel)hourModeSel.addEventListener('change',function(ev){
 var distTopSel=$('#distTop');
 if(distTopSel)distTopSel.addEventListener('change',function(ev){
   distTop=+ev.target.value;if(LASTA)renderDist(LASTA);});
+var sessTopSel=$('#sessTop');
+if(sessTopSel)sessTopSel.addEventListener('change',function(ev){
+  sessTop=+ev.target.value;if(LASTA)renderSessionTop(LASTA);});
 $('#platSel').addEventListener('change',function(ev){
   platFilter=ev.target.value===''?-1:+ev.target.value;
   selModel=null;state={ws:null,ses:null};renderAll();});
@@ -1238,11 +1297,24 @@ def _model_card(summary: Summary, palette: dict[str, str]) -> str:
             f'<span class="num">{fmt(tokens)}&ensp;·&ensp;{e(vendor_of(m))}&ensp;·&ensp;'
             f'{share:.1f}%</span></div>'
         )
+    # 两条指标行各自以「整条 = 100%」单独填充，静态首屏与 JS 重绘同口径
+    hit = max(0.0, min(100.0, summary.cache_hit_rate))
+    io_total = summary.input_tokens + summary.output_tokens
+    in_pct = summary.input_tokens / io_total * 100 if io_total else 0.0
+    out_pct = 100.0 - in_pct if io_total else 0.0
+    hit_tip = e(f"整条 = 100%（全部输入 token）\n缓存命中 {hit:.1f}%")
+    io_tip = e(f"整条 = 100%（输入 + 输出）\n输入 {in_pct:.1f}% · 输出 {out_pct:.1f}%")
     metric_rows = (
-        '<div class="mrow"><span class="nm sans">缓存命中率</span><span class="track"></span>'
+        f'<div class="mrow"><span class="nm sans">缓存命中率</span>'
+        f'<span class="track" data-tip="{hit_tip}">'
+        f'<i style="width:{hit:.1f}%;background:var(--brand)"></i></span>'
         f'<span class="num">{summary.cache_hit_rate:.1f}%&ensp;·&ensp;缓存写入按 1.25× 输入价</span></div>'
-        '<div class="mrow"><span class="nm sans">输入 / 输出比</span><span class="track"></span>'
-        f'<span class="num">{summary.io_ratio:.1f} : 1&ensp;·&ensp;全局 50% {fmt(summary.global_p50)}</span></div>'
+        f'<div class="mrow"><span class="nm sans">输入 / 输出比</span>'
+        f'<span class="track split" data-tip="{io_tip}">'
+        f'<i style="width:{in_pct:.1f}%;background:var(--brand)"></i>'
+        f'<i style="width:{out_pct:.1f}%;background:var(--bds)"></i></span>'
+        f'<span class="num">{summary.io_ratio:.1f} : 1&ensp;·&ensp;全局 50% '
+        f'{fmt(summary.global_p50)}</span></div>'
     )
     return "".join(rows) + metric_rows
 
@@ -1625,6 +1697,12 @@ def render_html(
         for i, p in enumerate(sorted(summary.by_platform))
     )
 
+    sess_opts = "".join(
+        f'<option value="{value}"'
+        f'{" selected" if value == DEFAULT_SESSION_TOP else ""}>{label}</option>'
+        for value, label in ((5, "TOP 5"), (10, "TOP 10"), (0, "全部会话"))
+    )
+
     payload = _payload(summary, records, palette, prices, generated,
                        window_days, custom_range)
     data_js = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -1658,7 +1736,8 @@ def render_html(
     script_js = (_SCRIPT
                  .replace("__HEAT_L_JS__", _heat_json("light"))
                  .replace("__HEAT_D_JS__", _heat_json("dark"))
-                 .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP)))
+                 .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP))
+                 .replace("__SESS_TOP__", str(DEFAULT_SESSION_TOP)))
     replacements = {
         "__TITLE__": e(title),
         "__SUBTITLE__": subtitle,
@@ -1667,6 +1746,8 @@ def render_html(
         "__CSS__": css,
         "__PERIODS__": period_pills,
         "__PLATOPTS__": plat_opts,
+        "__SESSOPTS__": sess_opts,
+        "__SESS_TOP__": str(DEFAULT_SESSION_TOP),
         "__SESSION_TOP__": "",
         "__HERO__": hero,
         "__KPIS__": kpis,
