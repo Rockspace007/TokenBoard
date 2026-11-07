@@ -267,8 +267,8 @@ __HERO__
 <span class="hdnote">标题 / 平台 / 工作空间随上方筛选联动 · 点击行查看会话详情</span>
 <div id="sessionTop">__SESSION_TOP__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
-<div class="card"><h3>0—24 时分布 · 按模型&ensp;<span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 逐时累加窗口内请求</span></h3>
-<span class="hdnote">点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
+<div class="card"><h3>0—24 时分布 · 按模型&ensp;<span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span></h3>
+<span class="hdnote">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
 <div class="card"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
 <h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
 <select class="mini" id="distTop" aria-label="显示模型数量" style="margin-left:auto">
@@ -578,9 +578,9 @@ function renderModelTotals(A){
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
   var hn=$('#hourNote');
-  if(hn)hn.textContent=win?('周期 '+winLabel()+' · 以 '+fm(todayDate())
-    +'（生成当日）为基准 · 逐时累加窗口内请求')
-    :'自定义日期窗口 · 逐时累加窗口内请求';
+  if(hn)hn.textContent=win?('周期 '+winLabel()+' · 截至 '+fm(todayDate())
+    +'（含当日）· 同一时段跨日累加，非当日曲线')
+    :'自定义窗口 · 同一时段跨日累加，非当日曲线';
   var top=orderByTokens(A).slice(0,2);
   if(!top.length){$('#hourChart').innerHTML='<div class="cap">暂无数据</div>';hourCtx=[];return;}
   hourCtx=top.map(function(mi){return {name:models[mi],vendor:VENDOR[mi]||'',
