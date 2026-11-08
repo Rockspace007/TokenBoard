@@ -48,15 +48,18 @@ Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
 ### 最快路径 · 仓库内一键入口
 
 ```bash
-./see.command                # 现扫现出：重新扫描全部已验证平台 → 生成 tokenboard.html → 浏览器打开
-./see.command --since 7d     # 只看近 7 天
+./see.command                # 一键启动实时看板：起本地服务 + 浏览器自动打开，页面「刷新」即拉最新数据
+./see.command --port 9000    # 自定义端口
+./see.command --since 7d     # 只看近 7 天（服务每次刷新都会按此口径重扫）
 ./see.command --theme dark   # 暗夜玻璃主题
+./see.command --static       # 旧模式：生成静态 tokenboard.html 并打开（刷新仅重载快照）
 
 macOS 还可以在 Finder 里**双击 `see.command`**（参数可直接透传；
-首次运行如被拦截：右键 → 打开）。
+首次运行如被拦截：右键 → 打开）。双击后服务常驻，停止请关闭该终端窗口或按 Ctrl+C。
 
-每次运行都是**重新统计**：不落盘、没有本地累计库。唯一产物 `tokenboard.html`
-已被 `.gitignore` 排除，不会带着本机数据提交到 GitHub。
+实时模式下，浏览器打开的是 `http://127.0.0.1:8000/`（默认端口），点页面右上角
+「刷新」即重新扫描本机日志，无需退出重启。每次刷新都是**重新统计**：不落盘、没有
+本地累计库，本机数据绝不提交到 GitHub（仓库内 `tokenboard.html` 已被 `.gitignore` 排除）。
 
 ### 方式一 · pip 安装（CLI / MCP）
 
