@@ -327,7 +327,7 @@ __HERO__
 <button class="mini on" data-s="tokens" type="button">按 Token</button>
 <button class="mini" data-s="sessions" type="button">按会话数</button>
 <select class="mini" id="wsGran" aria-label="分布粒度">
-<option value="day" selected>日 · 24 时</option><option value="week">周 · 7 天</option>
+<option value="day" selected>日 · 当日 24 时</option><option value="week">周 · 当周 7 天</option>
 <option value="month">月 · 当月</option></select></div></div>
 <div id="wsPanel" class="scrollbox">__WORKSPACES__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
@@ -438,17 +438,10 @@ function winLabel(){return dayMode?('指定日 '+dayKey)
   :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口'));}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
-/* 「聚焦日」= 指定日模式下所选的那天，否则为自定义区间终点日，再否则为生成当日。
-   0—24 时分布的「仅当日」与逐时数据 A.thb 都以它为准；随之切换时间选择会重定位。 */
+/* 「聚焦日」= 三档明细视图与 0—24 时「仅当日」的锚点日：
+   指定日模式下所选的那天 > 自定义区间终点日 > 当日。
+   日活分布、分布热力图的「当周 / 当月」都以此日所在自然周 / 自然月展开。 */
 function focusDayKey(){return dayMode?dayKey:(cHi?fm(new Date(cHi*60000)):fm(todayDate()));}
-/* 全局时间锚点（自然日 key）：作为「日/周/月」三档明细视图与 0—24 时「仅当日」的
-   基准日。口径与全局时间选择一致：指定日 > 自定义区间终点 > 周期/总量窗口内最晚有数据日。 */
-function anchorDayKey(A){
-  if(dayMode)return dayKey;
-  if(cHi)return fm(new Date(cHi*60000));
-  var dks=A?Object.keys(A.daily).sort():[];
-  return dks.length?dks[dks.length-1]:fm(todayDate());
-}
 function dayStartMin(k){return Math.floor(new Date(k+'T00:00:00').getTime()/60000);}
 /* 近 N 天 = 含生成当日在内的 N 个自然日：[当日-(N-1)天 00:00, ∞)。
    右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。
@@ -465,20 +458,30 @@ function orderByTokens(A){return models.map(function(m,i){return i;})
 /* ---------------- 聚合（与 Python 口径一致） ---------------- */
 function aggregate(){
   var lo=cutLo(),hi=cutHi(),focusKey=focusDayKey();
-  var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,
-    daily:{},dm:{},mt:new Array(models.length).fill(0),
+  var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,totAll:0,
+    daily:{},dailyAll:{},dm:{},mt:new Array(models.length).fill(0),
     /* thb = 仅「聚焦日」的按模型逐时消耗，供 0—24 时分布「仅当日」口径使用。
        指定日模式下聚焦日就是所选日，而非生成当日。
        hball = 全部数据（不限时间窗口，仅受平台筛选）的按模型逐时消耗，
-       供 0—24 时分布「累计」口径使用。 */
-    hball:{},thb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
+       供 0—24 时分布「累计」口径使用。
+       dailyAll / hmAll / wsAll / sessAll = 全量（总量口径）每日与逐时分布：
+       分布热力图与日活分布一律按总量显示，不受顶部时间窗口影响。 */
+    hball:{},thb:{},hm:{},hmAll:{},wsAll:{},sessAll:{},
+    sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
   for(var si=0;si<SESS.length;si++){
     var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
-    var st=0,sn=0,first=0,last=0,rs=[];
+    var st=0,sn=0,first=0,last=0,rs=[],sessDay={};
     for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];
-      /* 累计口径不受时间窗口限制：先于窗口过滤累计全量逐时 */
-      (A.hball[r[1]]=A.hball[r[1]]||new Array(24).fill(0))
-        [new Date(r[0]*60000).getHours()]+=r[2];
+      /* 总量口径不受时间窗口限制：先于窗口过滤累计全量逐时与全量每日分布 */
+      var dA=new Date(r[0]*60000),dkA=fm(dA),hA=dA.getHours();
+      A.totAll+=r[2];
+      (A.hball[r[1]]=A.hball[r[1]]||new Array(24).fill(0))[hA]+=r[2];
+      (A.dailyAll[dkA]=A.dailyAll[dkA]||{h:new Array(24).fill(0),tt:0});
+      A.dailyAll[dkA].h[hA]+=r[2];A.dailyAll[dkA].tt+=r[2];
+      (A.hmAll[dkA]=A.hmAll[dkA]||new Array(24).fill(0))[hA]+=r[2];
+      (sessDay[dkA]=sessDay[dkA]||new Array(24).fill(0))[hA]+=r[2];
+      (A.wsAll[s.w]=A.wsAll[s.w]||{});
+      (A.wsAll[s.w][dkA]=A.wsAll[s.w][dkA]||new Array(24).fill(0))[hA]+=r[2];
       if(r[0]<lo||r[0]>=hi)continue;rs.push(r);
       var d=new Date(r[0]*60000),dk=fm(d),h=d.getHours();
       A.tot+=r[2];A.inp+=r[3];A.out+=r[4];A.ch+=r[5];A.cw+=r[6]||0;A.turns++;A.cost+=cost(r);
@@ -494,6 +497,7 @@ function aggregate(){
       st+=r[2];sn++;if(!first)first=r[0];last=r[0];}
     if(sn){A.nsess++;if(A.ws[s.w])A.ws[s.w].cnt+=1;
       A.sess.push({i:si,s:s,rs:rs,tt:st,tn:sn,first:first,last:last});}
+    A.sessAll[si]=sessDay;
   }
   A.gp50=pctile(A.all,50);
   A.costModel=new Array(models.length).fill(0);
@@ -819,7 +823,7 @@ function renderHeat(A){
   /* 序列锚点跟随全局时间选择：指定日 → 所选日；自定义区间 → 区间终点日；
      周期/总量窗口 → 窗口内最晚有数据日（上限为生成当日）。切换时间选择时，
      日/周/月三档明细会重新定位到对应日所在的日/周/月。 */
-  var anchor=new Date(anchorDayKey(A)+'T00:00:00');
+  var anchor=new Date(focusDayKey()+'T00:00:00');
   function daySeq(n){var out=[];
     for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
     return out;}
@@ -829,14 +833,18 @@ function renderHeat(A){
   function monthSeq(a){var y=a.getFullYear(),m=a.getMonth(),out=[];
     for(var d=1;d<=monthDays(a);d++)out.push(fm(new Date(y,m,d)));
     return out;}
-  var bandTotal=A.bands.reduce(function(a,b){return a+b;},0)||1;
+  /* 时段占比取锚点当日全量逐时（与「日」档同一口径） */
+  var focusH=(A.dailyAll[focusDayKey()]?A.dailyAll[focusDayKey()].h:new Array(24).fill(0));
+  var bands=[0,0,0,0];
+  for(var bi=0;bi<24;bi++)bands[Math.min(3,Math.floor(bi/6))]+=focusH[bi];
+  var bandTotal=bands.reduce(function(a,b){return a+b;},0)||1;
   var names=['凌晨 0—6','上午 6—12','下午 12—18','晚间 18—24'];
-  var chips='<div class="chips">'+A.bands.map(function(v,i){
+  var chips='<div class="chips">'+bands.map(function(v,i){
     return '<div class="chip2"><span>'+names[i]+'</span><b>'
       +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
   var scope=dayMode?('指定日 '+dayKey+' · '):'';
   var note=scope+(heatView==='day'?'仅当日一行 · 每格一小时 · 悬浮看数值'
-    :heatView==='week'?'最近 7 个自然日 · 每格一天的消耗 · 悬浮看数值'
+    :heatView==='week'?'当周 7 个自然日（周一至周日）· 每格一天的消耗 · 悬浮看数值'
     :'本月 1 日起共 '+monthDays(anchor)+' 天 · 每格一天的消耗 · 未来日期留空 · 悬浮看数值');
   var head='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
     +seg+'<span class="hdnote" style="margin-left:auto">'+esc(note)+'</span></div>';
@@ -846,7 +854,7 @@ function renderHeat(A){
   if(heatView==='day'){
     /* 日档只显示当日一行（锚点日 = 指定日 / 自定义终点 / 当日），其余日期不渲染 */
     var days=[focusDayKey()],peak=1;
-    days.forEach(function(dk){(A.hm[dk]||[]).forEach(function(v){if(v>peak)peak=v;});});
+    days.forEach(function(dk){(A.hmAll[dk]||[]).forEach(function(v){if(v>peak)peak=v;});});
     /* 日期文字与热力格必须放进同一张 SVG 整体缩放：旧版日期是固定高度的
        HTML 标签列，而 SVG 自适应容器宽度整体缩放，两套行距缩放比例不同，
        行数一多日期就漂移错位 */
@@ -857,11 +865,11 @@ function renderHeat(A){
     for(var h=0;h<24;h++)svg.push('<text x="'+(labelW+h*(cell+gap)+cell/2)+'" y="12" '
       +'fill="var(--t3)" font-size="9" text-anchor="middle">'+h+'</text>');
     days.forEach(function(dk,r){var y=top+r*(rowH+rowGap);
-      var has=!!A.daily[dk],dayTot=has?A.daily[dk].tt:0;
+      var has=!!A.dailyAll[dk],dayTot=has?A.dailyAll[dk].tt:0;
       svg.push('<text x="'+(labelW-8)+'" y="'+(y+rowH/2+3.5).toFixed(1)+'" fill="'
         +(has?'var(--t2)':'var(--t3)')+'" font-size="10" text-anchor="end"'
         +' style="font-family:var(--mono)">'+esc(dk.slice(5).replace('-','—'))+'</text>');
-      for(var hh=0;hh<24;hh++){var v=(A.hm[dk]||new Array(24).fill(0))[hh];
+      for(var hh=0;hh<24;hh++){var v=(A.hmAll[dk]||new Array(24).fill(0))[hh];
         var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
         svg.push('<rect x="'+(labelW+hh*(cell+gap))+'" y="'+y+'" width="'+cell+'" height="'+rowH
           +'" rx="3" fill="'+HEAT[lv]+'" data-tip="'+esc(dk+' '+hh+':00–'+(hh+1)
@@ -869,25 +877,25 @@ function renderHeat(A){
     svg.push('</svg>');
     body=svg.join('');
   }else{
-    var seq=heatView==='week'?daySeq(7):monthSeq(anchor);
+    var seq=heatView==='week'?weekSeq(anchor):monthSeq(anchor);
     var n=seq.length,anchorKey=fm(anchor);
     /* 「尚未到达」只相对生成当日。指定日若选历史某天，不能把该月里所选日
        之后的已过日期误判成未来空格（常规/自定义模式下 horizonKey === anchorKey）。 */
     var horizonKey=dayMode?fm(todayDate()):anchorKey;
-    var shareLabel=heatView==='week'?'近 7 天':'当月';
+    var shareLabel=heatView==='week'?'当周':'当月';
     var total=0,peak=1;
     seq.forEach(function(dk){
       if(dk>horizonKey)return;              // 未到达的日期不参与占比与色阶
-      var v=A.daily[dk]?A.daily[dk].tt:0;
+      var v=A.dailyAll[dk]?A.dailyAll[dk].tt:0;
       total+=v;if(v>peak)peak=v;});
     total=total||1;
     var cw=heatView==='week'?132:34,g=heatView==='week'?12:6;
     var width=n*(cw+g)-g,H=heatView==='week'?78:56;
     var svg=['<svg viewBox="0 0 '+width+' '+H+'" role="img" aria-label="'
-      +(heatView==='week'?'近 7 天每日消耗':'当月 1 日起每日消耗')+'">'];
+      +(heatView==='week'?'当周 7 天每日消耗':'当月 1 日起每日消耗')+'">'];
     seq.forEach(function(dk,i){
       var future=dk>horizonKey;
-      var v=future?0:(A.daily[dk]?A.daily[dk].tt:0);
+      var v=future?0:(A.dailyAll[dk]?A.dailyAll[dk].tt:0);
       var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
       var x=i*(cw+g),ch=heatView==='week'?44:30,y=heatView==='week'?24:8;
       if(future){
@@ -917,26 +925,21 @@ function renderHeat(A){
 /* ---------------- 工作空间 / 下钻 ---------------- */
 function heatLevel(v,avg){if(v<=0)return 0;
   return Math.min(7,Math.max(1,1+Math.floor(Math.log(v/avg/0.001)/Math.log(350)*7)));}
-/* 分布列粒度：day=聚焦日 24 格（每小时）/ week=每天 1 格 / month=每天 1 格。
-   跨度跟随全局时间窗口：近 N 天 → N 格（周档最多 7 格、月档最多当月天数）；
-   总量模式与长自定义区间取自然跨度（周 7 格 / 当月天数格）。指定日 = 1 天窗口。
-   锚点与「日活分布」卡同口径：指定日 > 自定义区间终点 > 窗口内最晚有数据日。 */
+/* 自然周序列：a 所在自然周的 7 天（周一 → 周日），跨月自动接续。 */
+function weekSeq(a){
+  var y=a.getFullYear(),m=a.getMonth(),d=a.getDate()-((a.getDay()+6)%7);
+  var mon=new Date(y,m,d),out=[];
+  for(var i=0;i<7;i++)out.push(fm(new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()+i)));
+  return out;}
+/* 分布列粒度：day=当日 24 格（逐时）/ week=当周 7 天（每天 1 格）/ month=当月天数格。
+   三档一律按「总量」时间周期显示，不受顶部时间窗口影响；
+   锚点日 = 指定日 > 自定义区间终点 > 当日。 */
 function granSpec(A){
-  var a=new Date(anchorDayKey(A)+'T00:00:00');
+  var a=new Date(focusDayKey()+'T00:00:00');
   if(wsGran==='day')return {list:[fm(a)],hourly:true,label:'日 · 24 时'};
-  /* 窗口自然日数：指定日=1；总量=0（不限）；周期窗口=win 天；自定义区间=区间天数 */
-  var wd=dayMode?1:(allMode?0:(win||(cLo&&cHi?Math.max(1,Math.round((cHi-cLo)/1440)):0)));
-  function lastDays(n){var out=[];
-    for(var i=n-1;i>=0;i--)out.push(fm(new Date(a.getTime()-i*86400e3)));
-    return out;}
-  if(wsGran==='week'){
-    var n=wd?Math.min(wd,7):7;
-    return {list:lastDays(n),hourly:false,
-      label:wd===1?'1 天':(wd===2?'2 天':(wd&&wd<7?'近 '+wd+' 天':'周 · 近 7 天'))};}
-  var y=a.getFullYear(),m=a.getMonth(),n2=new Date(y,m+1,0).getDate();
-  if(wd&&wd<n2)return {list:lastDays(wd),hourly:false,label:wd===1?'1 天':'近 '+wd+' 天'};
-  var out=[];
-  for(var d=1;d<=n2;d++)out.push(fm(new Date(y,m,d)));
+  if(wsGran==='week')return {list:weekSeq(a),hourly:false,label:'周 · 当周 7 天'};
+  var y=a.getFullYear(),m=a.getMonth(),n=new Date(y,m+1,0).getDate(),out=[];
+  for(var d=1;d<=n;d++)out.push(fm(new Date(y,m,d)));
   return {list:out,hourly:false,label:'月 · 当月'};
 }
 /* 三档粒度共用 heatLevel 对数色阶，avg 按粒度校准：让「全局平均格子」都落在
@@ -952,10 +955,9 @@ function vizCellsG(perDay,spec,avg){var todayK=fm(todayDate()),h='';
       h+='<i style="background:'+HEAT[heatLevel(v,avg)]+'" title="'
         +esc(dk+' · '+(fut?'尚未到达':fmt(v)))+'"></i>';}});
   return h;}
-function shdCells(entry,spec,avg){var per={};
-  entry.rs.forEach(function(r){var d=new Date(r[0]*60000),dk=fm(d);
-    (per[dk]=per[dk]||new Array(24).fill(0))[d.getHours()]+=r[2];});
-  return vizCellsG(per,spec,avg);}
+function shdCells(entry,spec,avg,A){
+  /* 会话行分布同样按总量口径：取该会话的全量逐时分布 */
+  return vizCellsG((A&&A.sessAll[entry.i])||{},spec,avg);}
 function pchips(ps){return ps.map(function(p){
   return '<span class="pchip">'+esc(PLAT[p]||'')+'</span>';}).join('');}
 function rowHtml(attrs,nm,plat,tk,share,sub,viz){
@@ -966,8 +968,9 @@ function rowHtml(attrs,nm,plat,tk,share,sub,viz){
 /* 工作空间榜计数提示：搜索态显示匹配数且不受 TOP 限制，避免榜外项搜不到 */
 function setWsNote(total,label){
   var n=$('#wsNote');if(!n)return;
-  n.textContent=q?('匹配 '+nf(total)+' 个'+label+' · 搜索结果全部显示')
-    :('共 '+nf(total)+' 个'+label+(wsTop?' · 显示前 '+Math.min(wsTop,total)+' 个':' · 全部显示'));
+  n.textContent=(q?('匹配 '+nf(total)+' 个'+label+' · 搜索结果全部显示')
+    :('共 '+nf(total)+' 个'+label+(wsTop?' · 显示前 '+Math.min(wsTop,total)+' 个':' · 全部显示')))
+    +' · 分布列按总量统计';
 }
 function showWsCtrls(on){
   var n=$('#wsNote'),s=$('#wsTop');
@@ -978,18 +981,14 @@ function renderPanel(A){
   var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
   /* 列表态限高滚动；会话详情自带散点/明细表滚动区，去掉限高避免嵌套滚动 */
   if(panel)panel.classList.add('scrollbox');
-  var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
+  /* 分布列一律按「总量」统计：色阶基准取全量日均，不随顶部时间窗口变化 */
+  var avgD=A.totAll/(Object.keys(A.dailyAll).length||1);if(!(avgD>0))avgD=1;
   var spec=granSpec(A),avgG=granAvg(avgD);
-  var whd={},wplats={};
+  /* 每个工作空间涉及的平台（仅窗口内），供行内平台列使用 */
+  var wplats={};
   SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
-    if(state.ws!==null&&s.w!==state.ws)return;
-    for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];if(!inWin(r[0]))continue;
-      var d=new Date(r[0]*60000),dk=fm(d);
-      (whd[s.w]=whd[s.w]||{});(whd[s.w][dk]=whd[s.w][dk]||new Array(24).fill(0));
-      whd[s.w][dk][d.getHours()]+=r[2];}});
-  /* 每个工作空间涉及的平台（随窗口与平台筛选联动），供行内平台列使用 */
-  SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
-    if(A.ws[s.w]&&A.ws[s.w].tt>0)(wplats[s.w]=wplats[s.w]||{})[s.p]=1;});
+    for(var ri=0;ri<s.r.length;ri++){if(!inWin(s.r[ri][0]))continue;
+      (wplats[s.w]=wplats[s.w]||{})[s.p]=1;break;}});
   if(state.ws===null){
     crumb.style.display='none';tools.style.display='block';showWsCtrls(true);
     $('#wsTitle').textContent='工作空间 & 会话消耗活跃分布';
@@ -1003,7 +1002,7 @@ function renderPanel(A){
         +'<span>占比 / 轮次</span><span>分布（'+spec.label+'）</span><span></span></div>'
         +sr.map(function(x){return rowHtml('data-si="'+x.i+'" data-tokens="'+x.tt
           +'" data-sessions="'+x.tn+'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-          x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
+          x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG,A));}).join('');
       return;}
     var order=Object.keys(A.ws).map(Number).filter(function(w){return A.ws[w].tt>0;});
     order.sort(function(a,b){return wsSort==='tokens'
@@ -1019,7 +1018,7 @@ function renderPanel(A){
         +'" data-sessions="'+(A.ws[w].cnt||0)+'" data-name="'+esc(WS[w].toLowerCase())+'"',
         WS[w],pchips(Object.keys(wplats[w]||{}).map(Number).sort(function(a,b){return a-b;})),
         A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
-        vizCellsG(whd[w]||{},spec,avgG));}).join('');
+        vizCellsG(A.wsAll[w]||{},spec,avgG));}).join('');
     return;}
   showWsCtrls(false);   // 下钻到会话列表/详情时隐藏 TOP 控件与计数
   var entry=null;
@@ -1036,7 +1035,7 @@ function renderPanel(A){
     panel.innerHTML=arr.map(function(x){return rowHtml('data-si="'+x.i
       +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
       +'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-      x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
+      x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG,A));}).join('');
     return;}
   var s=entry;
   if(panel)panel.classList.remove('scrollbox');

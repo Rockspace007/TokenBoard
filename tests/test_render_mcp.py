@@ -68,19 +68,23 @@ class TestRender(unittest.TestCase):
             self.assertIn(needle, html)
 
     def test_ws_granularity_heatmap(self):
-        """分布列三档粒度下拉（日 24 时 / 周 7 天 / 月当月），默认日；跨度跟随全局窗口。"""
+        """分布列三档粒度下拉（当日 24 时 / 当周 7 天 / 当月），默认日档；一律按总量统计。"""
         html = render_html(self.summary, self.records, self.statuses)
         self.assertIn('id="wsGran"', html)
-        self.assertIn('<option value="day" selected>日 · 24 时</option>', html)
-        for opt in ('<option value="week">周 · 7 天</option>',
+        self.assertIn('<option value="day" selected>日 · 当日 24 时</option>', html)
+        for opt in ('<option value="week">周 · 当周 7 天</option>',
                     '<option value="month">月 · 当月</option>'):
             self.assertIn(opt, html)
         self.assertIn("wsGran='day'", html)
         self.assertIn("分布（日 · 24 时）", html)
-        # 跨度跟随窗口：近 N 天 → min(N,7) 格，周/月档由 granSpec 按窗口收缩
-        self.assertIn("var wd=dayMode?1:(allMode?0:(win||(cLo&&cHi?", html)
-        self.assertIn("Math.min(wd,7)", html)
-        self.assertNotIn("id=\"wsMult\"", html)
+        # 周档取锚点所在自然周（周一至周日），月档取当月天数
+        self.assertIn("function weekSeq(a)", html)
+        self.assertIn("weekSeq(a),hourly:false,label:'周 · 当周 7 天'", html)
+        # 三档一律按总量时间周期显示：数据源取全量聚合桶，不随窗口变化
+        self.assertIn("A.wsAll[w]", html)
+        self.assertIn("A.sessAll[entry.i]", html)
+        self.assertIn("var avgD=A.totAll/", html)
+        self.assertNotIn('id="wsMult"', html)
         self.assertNotIn('id="wsPlats"', html)
         # Python 首屏占位格与默认粒度对齐：每行恰好 24 个 <i>
         card = _workspace_card(self.summary)
