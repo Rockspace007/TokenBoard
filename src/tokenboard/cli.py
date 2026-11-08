@@ -22,7 +22,7 @@ from . import __version__
 from .aggregate import summarize
 from .brands import BRAND_COLORS, THEMES
 from .pricing import load_prices
-from .registry import ScanResult, all_adapters, names, scan
+from .registry import ScanResult, all_adapters, names, normalize, scan
 from .render import DEFAULT_VIEW_DAYS, DEFAULT_VIEW_LABEL, render_html, summary_json
 
 
@@ -367,17 +367,41 @@ def _force_utf8_streams() -> None:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     """本地实时看板：每收到一次 GET 都重新扫描本机日志并渲染，页面「刷新」即拉取最新数据。"""
+    import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlparse
 
     prices = load_prices(args.prices)
     cfg = dict(
         platforms=args.platform, since=args.since, until=args.until,
         theme=args.theme, title=args.title, prices=prices,
     )
+    # 本次服务会话内「已导入」的平台。刻意只放内存、不落盘：与项目「不写本地累计库」
+    # 的数据安全承诺一致；服务重启后回到默认扫描集合，需要重新点导入。
+    imported: set[str] = set()
+    imported_lock = threading.Lock()
+
+    def imported_snapshot() -> list[str]:
+        with imported_lock:
+            return sorted(imported)
+
+    def active_platforms() -> list[str]:
+        """默认扫 auto_discover 平台；显式 --platform 时以它为准；两者都叠加已导入平台。
+
+        这样 auto_discover=False 的平台（如 Claude Code / Codex）在用户点「导入」后
+        才会被纳入统计，既避免默认误扫未确认目录，又让导入按钮有真实数据价值。
+        """
+        base = list(cfg["platforms"]) if cfg["platforms"] else [
+            a.name for a in all_adapters() if a.auto_discover
+        ]
+        for key in imported_snapshot():
+            if key not in base:
+                base.append(key)
+        return base
 
     def build_html() -> str:
         result = scan(
-            platforms=cfg["platforms"], paths=None,
+            platforms=active_platforms(), paths=None,
             since=cfg["since"], until=cfg["until"],
         )
         for error in result.errors:
@@ -396,10 +420,46 @@ def cmd_serve(args: argparse.Namespace) -> int:
             custom_range=(cfg["since"], cfg["until"])
             if (cfg["until"] or (cfg["since"] and window_days(cfg["since"]) is None)) else None,
             prices=cfg["prices"],
+            imported=imported_snapshot(),
         )
 
     class _Handler(BaseHTTPRequestHandler):
+        def _json(self, code: int, payload: dict) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):  # noqa: N802  (http.server 约定)
+            parsed = urlparse(self.path)
+            if parsed.path.rstrip("/") == "/api/import":
+                key = normalize(parse_qs(parsed.query).get("platform", [""])[0])
+                # 白名单：key 只用于注册表查表，绝不拼接路径，避免任意目录被扫描
+                if key not in names() or key == "generic":
+                    self._json(400, {"ok": False, "error": f"未知平台 {key!r}"})
+                    return
+                try:
+                    with imported_lock:
+                        imported.add(key)
+                    one = scan(platforms=[key], since=cfg["since"], until=cfg["until"])
+                    st = next((s for s in one.statuses if s.name == key), None)
+                    self._json(200, {
+                        "ok": True,
+                        "platform": key,
+                        "display_name": st.display_name if st else key,
+                        "file_count": st.file_count if st else 0,
+                        "record_count": one.count,
+                        "errors": one.errors[:3],
+                    })
+                except Exception as exc:  # 单个平台失败不影响服务其它路由
+                    self._json(500, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+                return
+            if parsed.path not in ("/", ""):
+                self.send_error(404)
+                return
             try:
                 body = build_html().encode("utf-8")
             except Exception as exc:  # 单页失败不应拖垮服务

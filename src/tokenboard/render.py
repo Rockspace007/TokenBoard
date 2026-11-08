@@ -149,6 +149,17 @@ white-space:nowrap;word-break:keep-all;display:inline-block}
 .pill.ok{color:var(--ok);border-color:var(--ok)}
 .pill.no{color:var(--warn);border-color:var(--warn)}
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--brand);display:inline-block;margin-right:6px}
+/* 数据源表「导入状态」列：按钮 + 状态徽章同一行，窄屏也不折行 */
+.impcell{white-space:nowrap}
+.impbtn{border:1px solid var(--brand);background:var(--brandsoft);color:var(--brandb);
+font-size:10px;padding:4px 10px;border-radius:7px;cursor:pointer;font-family:var(--sans);font-weight:600}
+.impbtn:hover{filter:brightness(.96)}
+.impbtn.ghost{border-color:var(--bd);background:var(--surface);color:var(--t2);font-weight:400}
+.impbtn[disabled]{opacity:.55;cursor:wait}
+.impst{font-size:9.5px;margin-left:8px;white-space:nowrap}
+.impst.yet{color:var(--t3)}
+.impst.ok{color:var(--ok);font-weight:600}
+.impst.warn{color:var(--warn)}
 /* ---- 工作空间卡 ---- */
 .crumb{display:none;align-items:center;gap:8px;margin:2px 0 10px;font-size:11px;color:var(--t2)}
 .crumb .path .sep{margin:0 7px;color:var(--t3)}
@@ -329,6 +340,7 @@ __HERO__
 <div class="foot">__FOOTER__</div>
 <div id="tip"></div>
 <script>window.TB_DATA=__DATA__;</script>
+<script>window.TB_IMPORTED=__IMPORTED__;</script>
 <script>__SCRIPT__</script></body></html>"""
 
 _SCRIPT = r"""
@@ -1185,6 +1197,64 @@ if(refreshBtn)refreshBtn.onclick=function(){
   setTimeout(function(){location.reload();},30);
   setTimeout(function(){refreshBtn.disabled=false;refreshBtn.textContent=old;},2000);
 };
+/* ---------------- 数据源表：单平台导入 ----------------
+   只有 serve 实时模式（http/https）能真正回读本机日志；静态 file:// 仅给降级提示，
+   不假装扫描成功。导入成功后服务端把该平台并入扫描列表，延迟 reload 让数据进入全局看板。 */
+var IMPORTED=window.TB_IMPORTED||[];
+var IS_SERVE=(location.protocol==='http:'||location.protocol==='https:');
+var impBusy=false;
+function impRow(plat){
+  var b=document.querySelector('.impbtn[data-plat="'+plat+'"]');
+  return b?b.closest('tr'):null;
+}
+function paintImported(plat,state,rec){
+  var tr=impRow(plat);if(!tr)return;
+  var cell=tr.querySelector('[data-role="import"]');
+  var v=tr.querySelector('[data-role="verify"]');
+  if(v){v.className='pill ok';v.textContent='已验证';}
+  var s=cell&&cell.querySelector('[data-role="impst"]');
+  if(s){
+    if(state==='ok'){s.className='impst ok';s.textContent='✓ 已导入'+(rec!=null?' · '+rec+' 条':'');}
+    else if(state==='empty'){s.className='impst warn';s.textContent='已导入 · 本机暂无日志';}
+    else {s.className='impst warn';s.textContent='导入失败';}
+  }
+  var btn=cell&&cell.querySelector('.impbtn');
+  if(btn){btn.classList.add('ghost');btn.textContent='重新导入';btn.disabled=false;}
+}
+/* reload 后按服务端导入集合重放状态，避免看到回退 */
+IMPORTED.forEach(function(p){paintImported(p,'ok',null);});
+function doImport(plat){
+  if(impBusy)return;
+  var tr=impRow(plat);if(!tr)return;
+  var cell=tr.querySelector('[data-role="import"]');
+  var btn=cell&&cell.querySelector('.impbtn');
+  var st=cell&&cell.querySelector('[data-role="impst"]');
+  if(!IS_SERVE){
+    if(st){st.className='impst warn';st.textContent='需用 see.command 实时模式';}
+    if(btn)btn.title='双击打开的静态文件无法扫描本机日志；请用 ./see.command（serve 模式）打开后再导入';
+    return;
+  }
+  impBusy=true;
+  if(btn){btn.disabled=true;btn.textContent='导入中…';}
+  fetch('/api/import?platform='+encodeURIComponent(plat),{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(!j.ok)throw new Error(j.error||'导入失败');
+      paintImported(plat,j.record_count>0?'ok':'empty',j.record_count);
+      var fc=tr.querySelector('[data-role="files"]');
+      if(fc&&j.file_count!=null)fc.textContent=j.file_count;
+      setTimeout(function(){location.reload();},700);
+    })
+    .catch(function(err){
+      if(st){st.className='impst warn';st.textContent='导入失败：'+(err.message||'');}
+      if(btn){btn.disabled=false;btn.textContent='重试';}
+    })
+    .then(function(){impBusy=false;});
+}
+document.addEventListener('click',function(ev){
+  var b=ev.target&&ev.target.closest?ev.target.closest('.impbtn'):null;
+  if(b&&b.dataset.plat)doImport(b.dataset.plat);
+});
 renderAll();
 })();
 """
@@ -1683,24 +1753,49 @@ def _dayhour_card(summary: Summary, heat_anchor: str | None) -> str:
     return f'<div class="chips">{chips}</div>{legend}{"".join(parts)}'
 
 
-def _sources_card(statuses: Sequence[SourceStatus]) -> str:
+def _sources_card(statuses: Sequence[SourceStatus], imported: Sequence[str] = ()) -> str:
+    """数据源状态表；imported 为本次 serve 会话中已成功导入的平台内部 key。
+
+    「状态」列的 verified 原本是适配器开发期的静态标记（字段是否用真实日志核对过）。
+    这里额外把「本次已成功扫描接入」也视为已验证，满足页面上的接入闭环反馈；
+    底层 SourceStatus / 适配器类属性不受影响，agent_api 等其它出口仍是原语义。
+    """
+    imported_set = set(imported)
     rows = []
     for s in statuses:
-        pill = ('<span class="pill ok">已验证</span>' if s.verified
-                else '<span class="pill no">未验证</span>')
+        is_imp = s.name in imported_set
+        verified = s.verified or is_imp
+        pill = ('<span class="pill ok" data-role="verify">已验证</span>' if verified
+                else '<span class="pill no" data-role="verify">未验证</span>')
         note = e(s.note) if s.note else ("" if s.verified else "本机没有真实日志可供核对")
         root = e(s.roots[0]) if s.roots else "—"
+        if is_imp:
+            imp_state = '<span class="impst ok">✓ 已导入</span>'
+            btn_label, btn_cls = "重新导入", "impbtn ghost"
+        else:
+            imp_state = '<span class="impst yet">未导入</span>'
+            btn_label, btn_cls = "导入", "impbtn"
+        imp_cell = (
+            '<td class="impcell" data-role="import">'
+            f'<button type="button" class="{btn_cls}" data-plat="{e(s.name)}" '
+            'title="扫描该平台日志并确认接入；未验证平台导入后一并纳入统计">'
+            f'{btn_label}</button>'
+            f'<span data-role="impst">{imp_state}</span></td>'
+        )
         rows.append(
             f'<tr><td style="color:var(--t1);font-weight:600">{e(s.display_name)}</td>'
-            f'<td class="mono">{root}</td><td class="mono">{s.file_count}</td>'
-            f'<td>{pill}</td><td style="font-size:10.5px">{note}</td></tr>'
+            f'<td class="mono">{root}</td>'
+            f'<td class="mono" data-role="files">{s.file_count}</td>'
+            f'<td>{pill}</td>{imp_cell}'
+            f'<td style="font-size:10.5px">{note}</td></tr>'
         )
     live = ('<span class="livedot"></span><span style="font-size:10px;color:var(--t2)">'
             "本机日志已连接</span>") if any(s.verified for s in statuses) else ""
     table = (
         "<table><thead><tr><th>平台</th><th>默认路径</th><th>文件</th><th>状态</th>"
+        '<th title="扫描并接入该平台数据源；仅 serve 实时模式可真正回读本机日志">导入状态</th>'
         "<th>说明</th></tr></thead><tbody>"
-        + ("".join(rows) or '<tr><td colspan="5">未指定数据源</td></tr>')
+        + ("".join(rows) or '<tr><td colspan="6">未指定数据源</td></tr>')
         + "</tbody></table>"
     )
     return f'<div style="position:absolute;right:22px;top:16px">{live}</div>' + table
@@ -1746,6 +1841,7 @@ def render_html(
     window_days: int | None = DEFAULT_VIEW_DAYS,
     custom_range: tuple[int | None, int | None] | None = None,
     prices: dict | None = None,
+    imported: Sequence[str] = (),
 ) -> str:
     """渲染完整的单文件 HTML；不访问网络、不写文件。
 
@@ -1875,7 +1971,8 @@ def render_html(
         ),
         "__MODELS__": _model_card(summary, palette),
         "__DAILY__": _daily_card(records, summary, palette),
-        "__SOURCES__": _sources_card(statuses),
+        "__SOURCES__": _sources_card(statuses, imported),
+        "__IMPORTED__": json.dumps(sorted(set(imported)), ensure_ascii=False),
         "__MODEL_TOTALS__": _model_totals_card(summary, palette),
         "__HOURLY__": _hourly_card(summary, palette),
         "__DISTNOTE__": dist_note,
