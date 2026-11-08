@@ -62,6 +62,17 @@ padding:5px 8px;font-size:10.5px;font-family:var(--mono)}
    不再把 color-scheme 交给系统偏好决定，避免浅色主题下日期文字被 UA 画成浅色 */
 body[data-theme=light] .drange input{color-scheme:light}
 body[data-theme=dark] .drange input{color-scheme:dark}
+/* 「指定日」控件：未激活时淡显，激活后整组高亮，避免误以为当前已在单日模式 */
+.dpick{display:flex;align-items:center;gap:1px;border:1px solid var(--bd);border-radius:9px;
+background:var(--surface);padding:2px;opacity:.7;transition:opacity .15s,border-color .15s}
+.dpick.on{opacity:1;border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+.dpick input{border:none;background:transparent;color:var(--t1);-webkit-text-fill-color:var(--t1);
+font-size:10.5px;font-family:var(--mono);padding:4px 4px 4px 6px;min-width:112px}
+.dpick button.mini{border:none;background:transparent;font-size:15px;line-height:1;
+padding:2px 8px;cursor:pointer;font-family:var(--sans)}
+.dpick button.mini:hover{background:var(--brandsoft);border-radius:6px;color:var(--brandb)}
+body[data-theme=light] .dpick input{color-scheme:light}
+body[data-theme=dark] .dpick input{color-scheme:dark}
 /* ---- 结论条 ---- */
 .hero{position:relative;background:var(--surface);border:1px solid var(--bds);border-radius:20px;
 padding:20px 26px 18px;margin-bottom:16px;overflow:hidden}
@@ -251,6 +262,10 @@ _TEMPLATE = r"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <div class="twin" id="periodPills">__PERIODS__</div>
 <div class="drange"><input type="date" id="dStart" aria-label="起始日期">至
 <input type="date" id="dEnd" aria-label="结束日期"></div>
+<div class="dpick" id="dayPick" title="按日历选择具体某一天；‹ › 可逐日切换">
+<button type="button" class="mini" id="dayPrev" aria-label="前一天" title="前一天">‹</button>
+<input type="date" id="daySel" aria-label="选择具体日期" value="__DAYVAL__" min="__DAYMIN__" max="__DAYMAX__">
+<button type="button" class="mini" id="dayNext" aria-label="后一天" title="后一天">›</button></div>
 <select class="mini" id="platSel" aria-label="平台筛选">__PLATOPTS__</select>
 <button class="chip" id="themeBtn">深色</button>
 <button class="chip" onclick="window.print()">导出 PDF</button></div></div>
@@ -331,7 +346,10 @@ var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天�
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
 var sessTop=__SESS_TOP__;  // 会话消耗榜显示的条数（0=全部），与 Python 常量同源
 var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部），与 Python 常量同源
-var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅生成当日逐时
+var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅聚焦日逐时
+/* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
+   与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
+var dayMode=false,dayKey='';
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -379,13 +397,19 @@ function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=
   for(var i=0;i<3;i++){var c1=parseInt(a.substr(i*2,2),16),c2=parseInt(b.substr(i*2,2),16);
     o.push(Math.round(c1+(c2-c1)*t));}
   return '#'+o.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');}
-function winLabel(){return win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口';}
+function winLabel(){return dayMode?('指定日 '+dayKey)
+  :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口');}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
+/* 「聚焦日」= 指定日模式下所选的那天，否则为生成当日。
+   0—24 时分布的「仅当日」与逐时数据 A.thb 都以它为准。 */
+function focusDayKey(){return dayMode?dayKey:fm(todayDate());}
+function dayStartMin(k){return Math.floor(new Date(k+'T00:00:00').getTime()/60000);}
 /* 近 N 天 = 含生成当日在内的 N 个自然日：[当日-(N-1)天 00:00, ∞)。
-   右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。 */
-function cutLo(){return win?dayAnchor-win*1440:(cLo||0);}
-function cutHi(){return (!win&&cHi)?cHi:Infinity;}
+   右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。
+   指定日模式优先级最高：[所选日 00:00, 次日 00:00)。 */
+function cutLo(){return dayMode?dayStartMin(dayKey):(win?dayAnchor-win*1440:(cLo||0));}
+function cutHi(){return dayMode?dayStartMin(dayKey)+1440:((!win&&cHi)?cHi:Infinity);}
 function inWin(tsMin){return tsMin>=cutLo()&&tsMin<cutHi();}
 function orderByTokens(A){return models.map(function(m,i){return i;})
   .filter(function(i){return A.mt[i]>0;})
@@ -393,10 +417,11 @@ function orderByTokens(A){return models.map(function(m,i){return i;})
 
 /* ---------------- 聚合（与 Python 口径一致） ---------------- */
 function aggregate(){
-  var lo=cutLo(),hi=cutHi(),todayKey=fm(todayDate());
+  var lo=cutLo(),hi=cutHi(),focusKey=focusDayKey();
   var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,
     daily:{},dm:{},mt:new Array(models.length).fill(0),
-    /* thb = 仅「生成当日」的按模型逐时消耗，供 0—24 时分布「仅当日」口径使用 */
+    /* thb = 仅「聚焦日」的按模型逐时消耗，供 0—24 时分布「仅当日」口径使用。
+       指定日模式下聚焦日就是所选日，而非生成当日。 */
     hb:{},thb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
   for(var si=0;si<SESS.length;si++){
     var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
@@ -412,7 +437,7 @@ function aggregate(){
       (A.dm[dk]=A.dm[dk]||{})[r[1]]=(A.dm[dk][r[1]]||0)+r[2];
       A.mt[r[1]]+=r[2];A.bands[Math.min(3,Math.floor(h/6))]+=r[2];
       (A.hb[r[1]]=A.hb[r[1]]||new Array(24).fill(0))[h]+=r[2];
-      if(dk===todayKey)(A.thb[r[1]]=A.thb[r[1]]||new Array(24).fill(0))[h]+=r[2];
+      if(dk===focusKey)(A.thb[r[1]]=A.thb[r[1]]||new Array(24).fill(0))[h]+=r[2];
       (A.ws[s.w]=A.ws[s.w]||{tt:0,cnt:0});A.ws[s.w].tt+=r[2];
       if(r[2]>0){(A.sizes[r[1]]=A.sizes[r[1]]||[]).push(r[2]);A.all.push(r[2]);}
       st+=r[2];sn++;if(!first)first=r[0];last=r[0];}
@@ -475,8 +500,10 @@ function renderHero(A){
   var order=orderByTokens(A);
   var top=order.length?order[0]:-1;
   var days=Object.keys(A.daily).length;
-  var warn=(win&&days&&days<win)?('当前窗口为'+winLabel()+'，实际仅 '+days
-    +' 天有数据 · 日均按有数据日计算，空窗不计入'):'';
+  var warn=dayMode&&!A.tot
+    ?('指定日 '+dayKey+' 当日无请求 · 可用 ‹ › 切换日期，或从日历另选一天')
+    :((!dayMode&&win&&days&&days<win)?('当前窗口为'+winLabel()+'，实际仅 '+days
+      +' 天有数据 · 日均按有数据日计算，空窗不计入'):'');
   $('#heroMain').innerHTML=fmt(A.tot)+' Token&ensp;·&ensp;'+nf(A.turns)
     +' 次请求&ensp;·&ensp;预估 ¥'+A.cost.toFixed(2);
   $('#heroSub').innerHTML='缓存命中 '+pct(A.ch,A.inp).toFixed(1)+'%&ensp;·&ensp;主力模型 '
@@ -603,16 +630,18 @@ function renderModelTotals(A){
 
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
-  var isToday=hourMode==='today',dayStr=fm(todayDate());
+  var isToday=hourMode==='today',dayStr=focusDayKey();
   var src=isToday?A.thb:A.hb;
   var hn=$('#hourNote'),hs=$('#hourSub');
   if(hn)hn.textContent=isToday
     ?('仅 '+dayStr+' 当日 · 0—23 时逐时消耗（尚未到的时段为 0）')
-    :(win?('周期 '+winLabel()+' · 截至 '+dayStr+'（含当日）· 同一时段跨日累加，非当日曲线')
-      :'自定义窗口 · 同一时段跨日累加，非当日曲线');
+    :(dayMode?('指定日 '+dayKey+' · 0—23 时逐时消耗')
+      :(win?('周期 '+winLabel()+' · 截至 '+dayStr+'（含当日）· 同一时段跨日累加，非当日曲线')
+        :'自定义窗口 · 同一时段跨日累加，非当日曲线'));
   if(hs)hs.textContent=(isToday
     ?'每条曲线 = 当日该时段的实际消耗 · 未来时段为 0'
-    :'每条曲线 = 窗口内所有天在同一时段的消耗总和')
+    :(dayMode?'每条曲线 = 指定日该时段的实际消耗'
+      :'每条曲线 = 窗口内所有天在同一时段的消耗总和'))
     +' · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗';
   function sum(s){return s?s.reduce(function(a,b){return a+b;},0):0;}
   /* 仅当日按当日消耗重选 TOP 2，避免「今天活跃的模型」被窗口总量挤掉 */
@@ -621,7 +650,7 @@ function renderHour(A){
        .sort(function(a,b){return sum(src[b])-sum(src[a]);}).slice(0,2)
     :orderByTokens(A).slice(0,2);
   if(!top.length){$('#hourChart').innerHTML='<div class="cap">'
-    +(isToday?dayStr+' 当日暂无请求（可切回「窗口累计」查看历史）':'暂无数据')+'</div>';
+    +(isToday||dayMode?dayStr+' 当日暂无请求（可另选日期或切回周期窗口）':'暂无数据')+'</div>';
     hourCtx=[];return;}
   hourCtx=top.map(function(mi){return {name:models[mi],vendor:VENDOR[mi]||'',
     series:(src[mi]||new Array(24).fill(0)).slice()};});
@@ -647,7 +676,8 @@ function renderHour(A){
       +'" fill-opacity="'+(i===0?0.16:0.12)+'" stroke="none"/>'
       +'<path d="'+line+'" fill="none" stroke="'+pal(mi)+'" stroke-width="2"/>'
       +'<path d="'+line+'" fill="none" stroke="rgba(0,0,0,0)" stroke-width="8" data-tip="'
-      +esc(models[mi]+'\n'+(isToday?'当日':'24h')+' 合计 '+fmt(sum(series))+' token')+'"/></g>');});
+      +esc(models[mi]+'\n'+((isToday||dayMode)?'当日':'24h')
+      +' 合计 '+fmt(sum(series))+' token')+'"/></g>');});
   for(var h=0;h<24;h+=2)out.push('<text x="'+(h*step+6).toFixed(1)+'" y="'+(base+22)
     +'" fill="var(--t3)" font-size="10">'+h+'时</text>');
   out.push('</svg>');
@@ -740,7 +770,9 @@ function renderHeat(A){
      数据里存在更晚的日期（如导入未来时间戳）时以数据末日为准，避免被截断。 */
   var lastData=new Date(dayKeys[dayKeys.length-1]+'T00:00:00');
   var today=todayDate();
-  var anchor=win?(today.getTime()>lastData.getTime()?today:lastData):lastData;
+  /* 指定日模式以所选日为序列锚点，其余模式沿用原口径 */
+  var anchor=dayMode?new Date(dayKey+'T00:00:00')
+    :(win?(today.getTime()>lastData.getTime()?today:lastData):lastData);
   function daySeq(n){var out=[];
     for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
     return out;}
@@ -755,9 +787,10 @@ function renderHeat(A){
   var chips='<div class="chips">'+A.bands.map(function(v,i){
     return '<div class="chip2"><span>'+names[i]+'</span><b>'
       +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
-  var note=heatView==='day'?'每行一个自然日 · 每格一小时 · 空窗日留白 · 悬浮看数值'
+  var scope=dayMode?('指定日 '+dayKey+' · '):'';
+  var note=scope+(heatView==='day'?'每行一个自然日 · 每格一小时 · 空窗日留白 · 悬浮看数值'
     :heatView==='week'?'最近 7 个自然日 · 每格一天的消耗 · 悬浮看数值'
-    :'本月 1 日起共 '+monthDays(anchor)+' 天 · 每格一天的消耗 · 未来日期留空 · 悬浮看数值';
+    :'本月 1 日起共 '+monthDays(anchor)+' 天 · 每格一天的消耗 · 未来日期留空 · 悬浮看数值');
   var head='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
     +seg+'<span class="hdnote" style="margin-left:auto">'+esc(note)+'</span></div>';
   var sw=HEAT.map(function(c){return '<i style="background:'+c+'"></i>';}).join('');
@@ -790,10 +823,13 @@ function renderHeat(A){
   }else{
     var seq=heatView==='week'?daySeq(7):monthSeq(anchor);
     var n=seq.length,anchorKey=fm(anchor);
+    /* 「尚未到达」只相对生成当日。指定日若选历史某天，不能把该月里所选日
+       之后的已过日期误判成未来空格（常规/自定义模式下 horizonKey === anchorKey）。 */
+    var horizonKey=dayMode?fm(todayDate()):anchorKey;
     var shareLabel=heatView==='week'?'近 7 天':'当月';
     var total=0,peak=1;
     seq.forEach(function(dk){
-      if(dk>anchorKey)return;               // 未到达的日期不参与占比与色阶
+      if(dk>horizonKey)return;              // 未到达的日期不参与占比与色阶
       var v=A.daily[dk]?A.daily[dk].tt:0;
       total+=v;if(v>peak)peak=v;});
     total=total||1;
@@ -802,7 +838,7 @@ function renderHeat(A){
     var svg=['<svg viewBox="0 0 '+width+' '+H+'" role="img" aria-label="'
       +(heatView==='week'?'近 7 天每日消耗':'当月 1 日起每日消耗')+'">'];
     seq.forEach(function(dk,i){
-      var future=dk>anchorKey;
+      var future=dk>horizonKey;
       var v=future?0:(A.daily[dk]?A.daily[dk].tt:0);
       var lv=v<=0?0:Math.min(6,1+Math.floor(v/peak*5.999));
       var x=i*(cw+g),ch=heatView==='week'?44:30,y=heatView==='week'?24:8;
@@ -1028,13 +1064,17 @@ function renderAll(){
   renderDaily(A);renderModelTotals(A);renderHour(A);renderDist(A);renderHeat(A);
   renderPanel(A);renderSessionTop(A);
   [].forEach.call(document.querySelectorAll('.ppill'),function(b){
-    b.classList.toggle('on',win===+b.dataset.w);});
+    var w=+b.dataset.w;
+    /* 指定日模式只高亮「指定日」；自定义窗口则高亮它自己的 data-w=-1 标签 */
+    b.classList.toggle('on',dayMode?w===0:((w>0&&win===w)||(w===-1&&win===0)));});
+  var pick=$('#dayPick');if(pick)pick.classList.toggle('on',dayMode);
 }
 window.addEventListener('resize',fitModelNameCol);
 
 /* ---------------- 事件 ---------------- */
 document.addEventListener('click',function(ev){
   var t=ev.target;if(!t||!t.closest)return;
+  if(t.closest('#dayPick'))return;   // 单日控件有自己的监听器，不走全局委托
   var n;
   if((n=t.closest('[data-a]'))){
     if(n.dataset.a==='root'){state={ws:null,ses:null};renderAll();}
@@ -1047,7 +1087,10 @@ document.addEventListener('click',function(ev){
       if(LASTA.sess[i].i===idx){entry=LASTA.sess[i];break;}}
     if(entry){state={ws:entry.s.w,ses:idx};renderAll();}
     return;}
-  if((n=t.closest('.ppill'))){var wv=+n.dataset.w;if(wv<0)return;
+  if((n=t.closest('.ppill'))){var wv=+n.dataset.w;
+    if(wv===0){enterDayMode();return;}   // 「指定日」开关，不是周期天数
+    if(wv<0)return;
+    exitDayMode();
     win=wv;cLo=0;cHi=0;selModel=null;
     $('#dStart').value='';$('#dEnd').value='';renderAll();return;}
   if((n=t.closest('[data-m]'))){wsMode=n.dataset.m;
@@ -1081,11 +1124,46 @@ $('#platSel').addEventListener('change',function(ev){
   selModel=null;state={ws:null,ses:null};renderAll();});
 function applyCustom(){
   var sv=$('#dStart').value,ev=$('#dEnd').value;if(!sv&&!ev)return;
+  exitDayMode();
   cLo=sv?Math.floor(new Date(sv+'T00:00:00').getTime()/60000):0;
   cHi=ev?Math.floor((new Date(ev+'T00:00:00').getTime()+86400e3)/60000):0;
   win=0;selModel=null;renderAll();}
 $('#dStart').addEventListener('change',applyCustom);
 $('#dEnd').addEventListener('change',applyCustom);
+
+/* ---------------- 指定日模式 ---------------- */
+function exitDayMode(){dayMode=false;}
+function enterDayMode(key){
+  var sel=$('#daySel');
+  var v=key||(sel&&sel.value)||focusDayKey();
+  /* 夹到数据真实覆盖范围内，避免选到必定空白的日期 */
+  if(sel&&sel.min&&v<sel.min)v=sel.min;
+  if(sel&&sel.max&&v>sel.max)v=sel.max;
+  if(!v)return;
+  dayKey=v;dayMode=true;
+  if(sel)sel.value=v;
+  $('#dStart').value='';$('#dEnd').value='';
+  selModel=null;state={ws:null,ses:null};
+  renderAll();
+}
+function stepDay(delta){
+  var sel=$('#daySel');
+  /* 始终以日历框「当前显示」的日期为基准，避免用户手动改值后
+     内部 dayKey 与可见值不一致时翻页跳错 */
+  var base=(sel&&sel.value)||(dayMode?dayKey:focusDayKey());
+  var d=new Date(base+'T00:00:00');
+  d=new Date(d.getTime()+delta*86400e3);
+  var k=fm(d);
+  if(sel&&((sel.min&&k<sel.min)||(sel.max&&k>sel.max)))return;
+  enterDayMode(k);
+}
+var daySel=$('#daySel');
+if(daySel)daySel.addEventListener('change',function(ev){
+  if(ev.target.value)enterDayMode(ev.target.value);});
+var dayPrev=$('#dayPrev');
+if(dayPrev)dayPrev.addEventListener('click',function(){stepDay(-1);});
+var dayNext=$('#dayNext');
+if(dayNext)dayNext.addEventListener('click',function(){stepDay(1);});
 var themeBtn=document.getElementById('themeBtn');
 themeBtn.textContent=DARK?'浅色':'深色';
 themeBtn.onclick=function(){DARK=!DARK;HEAT=DARK?HEAT_D:HEAT_L;
@@ -1679,9 +1757,24 @@ def render_html(
     for lbl, wv in known.items():
         on = ' class="ppill on"' if lbl == window_label else ' class="ppill"'
         periods.append(f'<button{on} data-w="{wv}">{lbl}</button>')
+    # data-w=0 不是周期天数，是「指定日」模式的开关
+    periods.append('<button class="ppill" data-w="0" id="dayPill" '
+                   'title="按日历选择具体某一天">指定日</button>')
     if window_label not in known:
         periods.append(f'<button class="ppill on" data-w="-1">{e(window_label)}</button>')
     period_pills = "".join(periods)
+
+    # 单日日历的可选范围 = 嵌入页面的记录真实覆盖日期（records 已按 --since 过滤）。
+    # 初值取「生成当日」与「数据末日」的较小者，避免默认落到一个必定空白的日期。
+    if records:
+        day_min = datetime.fromtimestamp(min(r.ts for r in records)).strftime("%Y-%m-%d")
+        day_max = datetime.fromtimestamp(max(r.ts for r in records)).strftime("%Y-%m-%d")
+        day_val = min(generated[:10], day_max)
+        if day_val < day_min:
+            day_val = day_min
+    else:
+        day_min = day_max = ""
+        day_val = generated[:10]
 
     display_names = {getattr(s, "name", ""): getattr(s, "display_name", "") for s in statuses}
     plat_opts = '<option value="">全部平台</option>' + "".join(
@@ -1748,6 +1841,9 @@ def render_html(
         "__GENERATED__": e(generated),
         "__CSS__": css,
         "__PERIODS__": period_pills,
+        "__DAYVAL__": e(day_val),
+        "__DAYMIN__": e(day_min),
+        "__DAYMAX__": e(day_max),
         "__PLATOPTS__": plat_opts,
         "__SESSOPTS__": sess_opts,
         "__SESS_TOP__": str(DEFAULT_SESSION_TOP),
