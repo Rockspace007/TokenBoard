@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """看板默认展示窗口与数据源「导入状态」列的回归测试。
 
-锁住两个容易在后续迭代中被改坏的约定：
+锁住三个容易在后续迭代中被改坏的约定：
   1. 页面默认聚焦「1 天」，但 window_label/window_days 的 30 天口径必须保持
      ——它们还服务 agent_api 的 JSON / 简报，那里聚合的是全历史数据；
-  2. 导入状态列存在、每行可点，且已导入平台显示「已验证」。
+  2. 导入状态列存在、每行可点，且已导入平台显示「已验证」；
+  3. 导入态只认本机真实日志：本机 0 文件的平台即使 verified=True 也必须显示
+     「未导入 / 未验证 / 导入」，不得误报「已导入」。
 """
 from __future__ import annotations
 
@@ -53,27 +55,45 @@ class SourcesCardTest(unittest.TestCase):
     def test_column_and_buttons(self):
         html = _sources_card(STATUS)
         self.assertIn(">导入状态</th>", html)
-        # 每行一个可点按钮；已验证行按钮带 ghost 样式，故按 data-plat 计数
+        # 每行一个可点按钮；已导入行按钮带 ghost 样式，故按 data-plat 计数
         self.assertEqual(html.count('data-plat='), len(STATUS))
         self.assertIn('data-plat="codex"', html)
         self.assertIn('data-role="verify"', html)
 
-    def test_verified_row_is_imported_by_default(self):
-        """已验证平台的数据本来就在看板里，默认显示「已导入 / 重新导入」。"""
+    def test_row_with_files_is_imported_by_default(self):
+        """本机有日志文件（file_count>0）→ 默认「已导入 / 已验证 / 重新导入」。"""
         html = _sources_card(STATUS)
         row = html.split("WorkBuddy", 1)[1].split("</tr>", 1)[0]
         self.assertIn("✓ 已导入", row)
         self.assertIn("重新导入", row)
+        self.assertIn('data-role="verify">已验证', row)
         self.assertNotIn(">导入<", row)
 
-    def test_unverified_row_is_pending_by_default(self):
-        """未验证平台需用户点「导入」按需接入。"""
+    def test_row_without_files_is_pending_by_default(self):
+        """本机 0 文件 → 「未导入 / 未验证 / 导入」，需用户按需接入。"""
         html = _sources_card(STATUS)
         row = html.split("OpenAI Codex CLI", 1)[1].split("</tr>", 1)[0]
         self.assertIn("未导入", row)
         self.assertIn(">导入<", row)
+        self.assertIn('data-role="verify">未验证', row)
+        self.assertNotIn("重新导入", row)
+
+    def test_verified_but_not_installed_is_not_imported(self):
+        """核心回归：适配器 verified=True 但本机 0 文件，也不得显示「已导入」。
+
+        状态列的判定只认本机真实日志，不能回退到适配器开发期的静态标记。
+        """
+        s = SourceStatus(name="trae", display_name="Trae / TraeCode", verified=True,
+                         roots=(), file_count=0, note="本机未见会话日志")
+        row = _sources_card([s])
+        self.assertNotIn("✓ 已导入", row)
+        self.assertIn("未导入", row)
+        self.assertIn('data-role="verify">未验证', row)
+        self.assertIn(">导入<", row)
+        self.assertNotIn("重新导入", row)
 
     def test_imported_row_shows_verified(self):
+        """本次会话真正导入了数据（imported 集合）→ 已导入 / 已验证 / 重新导入。"""
         html = _sources_card(STATUS, imported=["codex"])
         row = html.split("OpenAI Codex CLI", 1)[1].split("</tr>", 1)[0]
         self.assertIn("✓ 已导入", row)
@@ -93,6 +113,15 @@ class RenderImportInjectionTest(unittest.TestCase):
         self.assertIn('class="ppill on" data-w="1">1 天', html)
         # data_js 用紧凑 JSON（无空格），用正则兼容两种序列化格式
         self.assertRegex(html, r'"win":\s*1\b')
+
+    def test_default_page_pending_for_zero_file_platform(self):
+        """真实页面（无 imported）里 0 文件平台必须保持未导入/未验证。"""
+        html = render_html(summarize([]), [], STATUS)
+        row = html.split("OpenAI Codex CLI", 1)[1].split("</tr>", 1)[0]
+        self.assertIn("未导入", row)
+        self.assertIn('data-role="verify">未验证', row)
+        self.assertIn(">导入<", row)
+        self.assertNotIn("重新导入", row)
 
 
 if __name__ == "__main__":

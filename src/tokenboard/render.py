@@ -1198,31 +1198,28 @@ if(refreshBtn)refreshBtn.onclick=function(){
   setTimeout(function(){refreshBtn.disabled=false;refreshBtn.textContent=old;},2000);
 };
 /* ---------------- 数据源表：单平台导入 ----------------
-   只有 serve 实时模式（http/https）能真正回读本机日志；静态 file:// 仅给降级提示，
-   不假装扫描成功。导入成功后服务端把该平台并入扫描列表，延迟 reload 让数据进入全局看板。 */
-var IMPORTED=window.TB_IMPORTED||[];
+   列的初始状态完全由服务端按「本机真实日志」渲染，前端不做会话状态重放（单一数据源）。
+   只有 serve 实时模式（http/https）能真正回读本机日志；静态 file:// 仅给降级提示。
+   点导入 = 服务端真扫一遍并检测本机安装状态：
+     · 真正扫到数据 → 已导入 / 已验证 / 重新导入，延迟 reload 让数据并入看板；
+     · 本机未安装或 0 条 → 保持 未导入 / 未验证 / 导入按钮，明确提示，绝不假装成功。 */
 var IS_SERVE=(location.protocol==='http:'||location.protocol==='https:');
 var impBusy=false;
 function impRow(plat){
   var b=document.querySelector('.impbtn[data-plat="'+plat+'"]');
   return b?b.closest('tr'):null;
 }
-function paintImported(plat,state,rec){
+/* 仅在服务端确实扫到记录时调用 */
+function paintImported(plat,rec){
   var tr=impRow(plat);if(!tr)return;
   var cell=tr.querySelector('[data-role="import"]');
   var v=tr.querySelector('[data-role="verify"]');
   if(v){v.className='pill ok';v.textContent='已验证';}
   var s=cell&&cell.querySelector('[data-role="impst"]');
-  if(s){
-    if(state==='ok'){s.className='impst ok';s.textContent='✓ 已导入'+(rec!=null?' · '+rec+' 条':'');}
-    else if(state==='empty'){s.className='impst warn';s.textContent='已导入 · 本机暂无日志';}
-    else {s.className='impst warn';s.textContent='导入失败';}
-  }
+  if(s){s.className='impst ok';s.textContent='✓ 已导入'+(rec!=null?' · '+rec+' 条':'');}
   var btn=cell&&cell.querySelector('.impbtn');
   if(btn){btn.classList.add('ghost');btn.textContent='重新导入';btn.disabled=false;}
 }
-/* reload 后按服务端导入集合重放状态，避免看到回退 */
-IMPORTED.forEach(function(p){paintImported(p,'ok',null);});
 function doImport(plat){
   if(impBusy)return;
   var tr=impRow(plat);if(!tr)return;
@@ -1230,7 +1227,7 @@ function doImport(plat){
   var btn=cell&&cell.querySelector('.impbtn');
   var st=cell&&cell.querySelector('[data-role="impst"]');
   if(!IS_SERVE){
-    /* 已验证平台默认就是「已导入」，快照模式下点「重新导入」不应把它覆盖成警告；
+    /* 本机有数据的行本来就是「已导入」，快照模式下点「重新导入」不应覆盖成警告；
        只有还处于「未导入」的行才需要提示改用实时模式。 */
     if(st&&st.classList.contains('yet')){
       st.className='impst warn';st.textContent='需用 see.command 实时模式';
@@ -1239,15 +1236,24 @@ function doImport(plat){
     return;
   }
   impBusy=true;
-  if(btn){btn.disabled=true;btn.textContent='导入中…';}
+  if(btn){btn.disabled=true;btn.textContent='检测中…';}
   fetch('/api/import?platform='+encodeURIComponent(plat),{cache:'no-store'})
     .then(function(r){return r.json();})
     .then(function(j){
       if(!j.ok)throw new Error(j.error||'导入失败');
-      paintImported(plat,j.record_count>0?'ok':'empty',j.record_count);
       var fc=tr.querySelector('[data-role="files"]');
       if(fc&&j.file_count!=null)fc.textContent=j.file_count;
-      setTimeout(function(){location.reload();},700);
+      if(j.imported){
+        paintImported(plat,j.record_count);
+        setTimeout(function(){location.reload();},700);
+      }else{
+        /* 本机未安装 / 暂无日志：状态列保持未验证，按钮仍是「导入」，不 reload */
+        var v=tr.querySelector('[data-role="verify"]');
+        if(v){v.className='pill no';v.textContent='未验证';}
+        if(st){st.className='impst warn';st.textContent=j.message||'本机未安装或暂无日志';}
+        if(btn){btn.disabled=false;btn.textContent='导入';btn.classList.remove('ghost');
+                btn.title='未检测到该平台数据；确认本机已安装并产生日志后可再次导入';}
+      }
     })
     .catch(function(err){
       if(st){st.className='impst warn';st.textContent='导入失败：'+(err.message||'');}
@@ -1758,26 +1764,28 @@ def _dayhour_card(summary: Summary, heat_anchor: str | None) -> str:
 
 
 def _sources_card(statuses: Sequence[SourceStatus], imported: Sequence[str] = ()) -> str:
-    """数据源状态表；imported 为本次 serve 会话中已成功导入的平台内部 key。
+    """数据源状态表；imported 为本次 serve 会话中「真正导入了数据」的平台内部 key。
 
-    「状态」列的 verified 原本是适配器开发期的静态标记（字段是否用真实日志核对过）。
-    这里额外把「本次已成功扫描接入」也视为已验证，满足页面上的接入闭环反馈；
-    底层 SourceStatus / 适配器类属性不受影响，agent_api 等其它出口仍是原语义。
+    列的语义只认**本机真实状态**，不采用适配器开发期的 ``verified`` 静态标记：
+      * 本机发现该平台日志文件（``file_count > 0``），或本次会话已确实扫出记录
+        → 「✓ 已导入 / 已验证 / 重新导入」；
+      * 本机未安装、没有日志（``file_count == 0`` 且未导入）
+        → 「未导入 / 未验证 / 导入」。
+    这样本机没装的平台不会误显示「已导入」。serve 端只在 ``record_count > 0``
+    时才把平台写进 imported，因此集合里不会混入 0 数据的平台。
+    底层 SourceStatus / 适配器类属性不受影响，CLI / MCP / JSON 等出口仍是原语义。
     """
     imported_set = set(imported)
     rows = []
     for s in statuses:
-        is_imp = s.name in imported_set
-        verified = s.verified or is_imp
-        pill = ('<span class="pill ok" data-role="verify">已验证</span>' if verified
+        is_imp = (s.file_count > 0) or (s.name in imported_set)
+        pill = ('<span class="pill ok" data-role="verify">已验证</span>' if is_imp
                 else '<span class="pill no" data-role="verify">未验证</span>')
-        note = e(s.note) if s.note else ("" if s.verified else "本机没有真实日志可供核对")
+        note = e(s.note) if s.note else "本机未安装或没有日志可供核对"
         root = e(s.roots[0]) if s.roots else "—"
-        # 已验证 = 该平台日志本来就在统计里，初始即「已导入」；
-        # 未验证且未手动导入的才显示「未导入」，由用户点按钮按需接入。
         # 状态 class 直接落在 data-role="impst" 这个 span 上（不嵌套），
         # 前端才能用 classList.contains('yet') 判断是否还处于未导入。
-        if is_imp or s.verified:
+        if is_imp:
             imp_cls, imp_text = "impst ok", "✓ 已导入"
             btn_label, btn_cls = "重新导入", "impbtn ghost"
         else:
@@ -1786,7 +1794,7 @@ def _sources_card(statuses: Sequence[SourceStatus], imported: Sequence[str] = ()
         imp_cell = (
             '<td class="impcell" data-role="import">'
             f'<button type="button" class="{btn_cls}" data-plat="{e(s.name)}" '
-            'title="扫描该平台日志并确认接入；未验证平台导入后一并纳入统计">'
+            'title="检测本机是否安装该平台并扫描日志；仅真正导入数据后才显示已导入">'
             f'{btn_label}</button>'
             f'<span class="{imp_cls}" data-role="impst">{imp_text}</span></td>'
         )
@@ -1798,7 +1806,8 @@ def _sources_card(statuses: Sequence[SourceStatus], imported: Sequence[str] = ()
             f'<td style="font-size:10.5px">{note}</td></tr>'
         )
     live = ('<span class="livedot"></span><span style="font-size:10px;color:var(--t2)">'
-            "本机日志已连接</span>") if any(s.verified for s in statuses) else ""
+            "本机日志已连接</span>") if any(
+                (s.file_count > 0) or (s.name in imported_set) for s in statuses) else ""
     table = (
         "<table><thead><tr><th>平台</th><th>默认路径</th><th>文件</th><th>状态</th>"
         '<th title="扫描并接入该平台数据源；仅 serve 实时模式可真正回读本机日志">导入状态</th>'

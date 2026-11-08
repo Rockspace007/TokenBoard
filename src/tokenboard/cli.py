@@ -376,8 +376,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         platforms=args.platform, since=args.since, until=args.until,
         theme=args.theme, title=args.title, prices=prices,
     )
-    # 本次服务会话内「已导入」的平台。刻意只放内存、不落盘：与项目「不写本地累计库」
-    # 的数据安全承诺一致；服务重启后回到默认扫描集合，需要重新点导入。
+    # 本次服务会话内「真正导入了数据」的平台：只有单平台扫描确实扫到记录才加入，
+    # 保证页面不会把本机未安装的平台标成「已导入」。只放内存、不落盘（延续项目
+    # 「不写本地累计库」的数据安全承诺），服务重启后需重新点导入。
     imported: set[str] = set()
     imported_lock = threading.Lock()
 
@@ -442,16 +443,25 @@ def cmd_serve(args: argparse.Namespace) -> int:
                     self._json(400, {"ok": False, "error": f"未知平台 {key!r}"})
                     return
                 try:
-                    with imported_lock:
-                        imported.add(key)
+                    # 点击导入 = 真扫一遍本机日志，这就是「本机安装状态」检测。
                     one = scan(platforms=[key], since=cfg["since"], until=cfg["until"])
                     st = next((s for s in one.statuses if s.name == key), None)
+                    got = one.count > 0
+                    installed = bool(st and st.file_count > 0) or got
+                    if got:
+                        # 只有真正扫到记录才纳入后续扫描；本机未安装 / 0 条不加入，
+                        # 页面与 reload 后的状态表才不会误显示「已导入」。
+                        with imported_lock:
+                            imported.add(key)
                     self._json(200, {
                         "ok": True,
                         "platform": key,
                         "display_name": st.display_name if st else key,
                         "file_count": st.file_count if st else 0,
                         "record_count": one.count,
+                        "imported": got,
+                        "installed": installed,
+                        "message": "" if got else "本机未安装或暂无日志，未导入数据",
                         "errors": one.errors[:3],
                     })
                 except Exception as exc:  # 单个平台失败不影响服务其它路由
