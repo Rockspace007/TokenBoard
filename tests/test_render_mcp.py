@@ -63,27 +63,31 @@ class TestRender(unittest.TestCase):
         for needle in ("单模型总量统计", "0—24 时分布 · 按模型",
                        "单次请求大小分布", "日活分布", "会话消耗活跃分布",
                        "周期跟随全局时间窗口", "metricSeg", "window.TB_DATA=",
-                       "data-tip", "id=\"wsGran\"", "id=\"wsPlats\""):
+                       "data-tip", "id=\"wsGran\"", "<span>平台</span>",
+                       "class=\"wplat\""):
             self.assertIn(needle, html)
 
     def test_ws_granularity_heatmap(self):
-        """分布列三档粒度下拉（日 24 时 / 周 7 天 / 月当月），默认周；首屏占位 7 格。"""
+        """分布列三档粒度下拉（日 24 时 / 周 7 天 / 月当月），默认日；跨度跟随全局窗口。"""
         html = render_html(self.summary, self.records, self.statuses)
         self.assertIn('id="wsGran"', html)
-        self.assertIn('<option value="week" selected>周 · 7 天</option>', html)
-        for opt in ('<option value="day">日 · 24 时</option>',
+        self.assertIn('<option value="day" selected>日 · 24 时</option>', html)
+        for opt in ('<option value="week">周 · 7 天</option>',
                     '<option value="month">月 · 当月</option>'):
             self.assertIn(opt, html)
-        self.assertIn("wsGran='week'", html)
-        self.assertIn("分布（周 · 近 7 天）", html)
-        self.assertNotIn("分布（近 7 个有数据日）", html)
-        self.assertNotIn('id="wsMult"', html)
-        # Python 首屏占位格与默认粒度对齐：每行恰好 7 个 <i>
+        self.assertIn("wsGran='day'", html)
+        self.assertIn("分布（日 · 24 时）", html)
+        # 跨度跟随窗口：近 N 天 → min(N,7) 格，周/月档由 granSpec 按窗口收缩
+        self.assertIn("var wd=dayMode?1:(allMode?0:(win||(cLo&&cHi?", html)
+        self.assertIn("Math.min(wd,7)", html)
+        self.assertNotIn("id=\"wsMult\"", html)
+        self.assertNotIn('id="wsPlats"', html)
+        # Python 首屏占位格与默认粒度对齐：每行恰好 24 个 <i>
         card = _workspace_card(self.summary)
         row_count = card.count('class="wsrow click"')
         self.assertGreater(row_count, 0)
         self.assertEqual(card.count('<i style="flex:1;background:var(--brand)'),
-                         7 * row_count)
+                         24 * row_count)
 
     def test_hour_top_select_defaults_to_three(self):
         """0—24 时分布卡提供 TOP 3/5/10/全部 下拉，默认选中 TOP 3。"""
@@ -105,6 +109,22 @@ class TestRender(unittest.TestCase):
         self.assertNotIn(".slice(0,2)", html)
         self.assertIn("$('#hourTop')", html)
         self.assertIn('class="hdtools"', html)
+
+    def test_hour_mode_total_and_day(self):
+        """0—24 时口径：累计=全部数据（不限窗口），仅当日=聚焦日；不再有「窗口累计」。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn('<option value="all" selected>累计</option>', html)
+        self.assertIn('<option value="today">仅当日</option>', html)
+        self.assertNotIn("窗口累计", html)
+        self.assertIn("var hourMode='all';", html)
+        self.assertIn("A.hball", html)    # 全量逐时聚合桶（不受窗口限制）
+        self.assertNotIn("A.hb[", html)   # 旧窗口口径聚合已移除
+
+    def test_daily_heat_day_view_single_row(self):
+        """日活分布「日」档只渲染锚点当日一行，其余日期不显示。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn("var days=[focusDayKey()]", html)
+        self.assertIn("仅当日一行", html)
 
     def test_hourly_card_follows_top_n(self):
         """首屏图例/曲线数跟随 top_n，0 表示全部模型（与 JS 口径一致）。"""

@@ -184,8 +184,6 @@ select.mini{padding:5px 20px 5px 9px;color-scheme:light dark;white-space:nowrap}
 .cardhead>select.mini{flex:0 0 auto;min-width:100px;margin-left:auto}
 .cardhead>select.mini.wide{min-width:132px}
 /* 工作空间 & 会话消耗活跃分布卡：平台链（列出涉及的全部平台，随全局平台筛选联动） */
-.platchips{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin-left:8px}
-.platchips::before{content:"平台";font-size:10px;color:var(--t3);margin-right:2px}
 .pchip{font-size:10px;line-height:1.5;padding:1px 7px;border:1px solid var(--bd);
   border-radius:999px;background:var(--surface);color:var(--t2);white-space:nowrap}
 .pchip:hover{border-color:var(--bds)}
@@ -196,14 +194,15 @@ select.mini{padding:5px 20px 5px 9px;color-scheme:light dark;white-space:nowrap}
 .wssearch{border:1px solid var(--bd);background:var(--surface);color:var(--t1);font-size:10.5px;
 padding:5px 10px;border-radius:7px;width:130px;outline:none;font-family:var(--sans)}
 .wssearch:focus{border-color:var(--bds)}
-.wshead{display:grid;grid-template-columns:minmax(140px,1.3fr) 110px 140px 1fr 18px;gap:12px;
+.wshead{display:grid;grid-template-columns:minmax(140px,1.2fr) 96px 110px 140px 1fr 18px;gap:12px;
 font-size:10px;color:var(--t3);padding:8px 0;border-bottom:1px solid var(--bd)}
-.wsrow{display:grid;grid-template-columns:minmax(140px,1.3fr) 110px 140px 1fr 18px;gap:12px;
+.wsrow{display:grid;grid-template-columns:minmax(140px,1.2fr) 96px 110px 140px 1fr 18px;gap:12px;
 align-items:center;padding:9px 0;border-bottom:1px solid var(--bd);font-size:10.5px}
 .wsrow:last-child{border-bottom:none}
 .wsrow.click{cursor:pointer}
 .wsrow.click:hover{background:var(--surface2)}
 .wsrow .nm{font-family:var(--mono);color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wsrow .wplat{display:flex;flex-wrap:wrap;gap:3px;align-items:center;overflow:hidden}
 .wsrow .tk{font-family:var(--mono);color:var(--t1);font-variant-numeric:tabular-nums}
 .wsrow .sh{color:var(--brandb);font-family:var(--mono)}
 .wsrow .sh small{color:var(--t3);margin-left:4px}
@@ -317,7 +316,6 @@ __HERO__
 <div class="sec"><b>03</b><h2>使用分布与时间节律</h2><span>工作空间 / 请求规模 / 日活 / 时段 / 模型构成</span></div>
 <div class="card"><div id="wsCrumb" class="crumb"></div>
 <div class="cardhead"><h3 id="wsTitle">工作空间 &amp; 会话消耗活跃分布</h3>
-<span class="platchips" id="wsPlats"></span>
 <span class="hdnote" id="wsNote">__WSNOTE__</span>
 <select class="mini wide" id="wsTop" aria-label="显示工作空间数量">__WSOPTS__</select></div>
 <div id="wsTools">
@@ -329,18 +327,18 @@ __HERO__
 <button class="mini on" data-s="tokens" type="button">按 Token</button>
 <button class="mini" data-s="sessions" type="button">按会话数</button>
 <select class="mini" id="wsGran" aria-label="分布粒度">
-<option value="day">日 · 24 时</option><option value="week" selected>周 · 7 天</option>
+<option value="day" selected>日 · 24 时</option><option value="week">周 · 7 天</option>
 <option value="month">月 · 当月</option></select></div></div>
 <div id="wsPanel" class="scrollbox">__WORKSPACES__</div></div>
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
 <div class="card"><div class="cardhead">
-<h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span>
+<h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">当日看节律 · 累计看总量 · 悬浮看该小时各模型消耗</span>
 <div class="hdtools">
 <select class="mini" id="hourTop" aria-label="0—24 时分布显示模型数量">__HOUROPTS__</select>
 <select class="mini" id="hourMode" aria-label="0—24 时分布口径">
-<option value="win" selected>窗口累计</option><option value="today">仅当日</option></select>
+<option value="all" selected>累计</option><option value="today">仅当日</option></select>
 </div></div>
-<span class="hdnote" id="hourSub">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
+<span class="hdnote" id="hourSub">每条曲线 = 全部数据在同一时段的消耗总和（不限时间窗口） · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
 <div class="card"><div class="cardhead">
 <h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
 <select class="mini" id="distTop" aria-label="显示模型数量">
@@ -373,13 +371,13 @@ var dayAnchor=D.dayAnchor||genMin;
 function todayDate(){return new Date((dayAnchor-1440)*60000);} // 当日 00:00
 var win=(D.win!=null?D.win:__VIEW_DAYS__),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
 if(D.custom)win=0;
-var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsGran='week',wsMode='ws';
+var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsGran='day',wsMode='ws';
 var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
 var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部），与 Python 常量同源
 var hourTop=__HOUR_TOP__;  // 0—24 时分布显示的曲线数（0=全部），与 Python 常量同源
-var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅聚焦日逐时
+var hourMode='all';  // 0—24 时分布口径：all=全部数据累计（不限窗口）/ today=仅聚焦日逐时
 /* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
    与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
 var dayMode=false,dayKey='';
@@ -470,12 +468,17 @@ function aggregate(){
   var A={tot:0,inp:0,out:0,ch:0,cw:0,turns:0,nsess:0,cost:0,
     daily:{},dm:{},mt:new Array(models.length).fill(0),
     /* thb = 仅「聚焦日」的按模型逐时消耗，供 0—24 时分布「仅当日」口径使用。
-       指定日模式下聚焦日就是所选日，而非生成当日。 */
-    hb:{},thb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
+       指定日模式下聚焦日就是所选日，而非生成当日。
+       hball = 全部数据（不限时间窗口，仅受平台筛选）的按模型逐时消耗，
+       供 0—24 时分布「累计」口径使用。 */
+    hball:{},thb:{},hm:{},sizes:{},all:[],bands:[0,0,0,0],ws:{},sess:[],plats:{}};
   for(var si=0;si<SESS.length;si++){
     var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
     var st=0,sn=0,first=0,last=0,rs=[];
     for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];
+      /* 累计口径不受时间窗口限制：先于窗口过滤累计全量逐时 */
+      (A.hball[r[1]]=A.hball[r[1]]||new Array(24).fill(0))
+        [new Date(r[0]*60000).getHours()]+=r[2];
       if(r[0]<lo||r[0]>=hi)continue;rs.push(r);
       var d=new Date(r[0]*60000),dk=fm(d),h=d.getHours();
       A.tot+=r[2];A.inp+=r[3];A.out+=r[4];A.ch+=r[5];A.cw+=r[6]||0;A.turns++;A.cost+=cost(r);
@@ -485,7 +488,6 @@ function aggregate(){
       (A.hm[dk]=A.hm[dk]||new Array(24).fill(0))[h]+=r[2];
       (A.dm[dk]=A.dm[dk]||{})[r[1]]=(A.dm[dk][r[1]]||0)+r[2];
       A.mt[r[1]]+=r[2];A.bands[Math.min(3,Math.floor(h/6))]+=r[2];
-      (A.hb[r[1]]=A.hb[r[1]]||new Array(24).fill(0))[h]+=r[2];
       if(dk===focusKey)(A.thb[r[1]]=A.thb[r[1]]||new Array(24).fill(0))[h]+=r[2];
       (A.ws[s.w]=A.ws[s.w]||{tt:0,cnt:0});A.ws[s.w].tt+=r[2];
       if(r[2]>0){(A.sizes[r[1]]=A.sizes[r[1]]||[]).push(r[2]);A.all.push(r[2]);}
@@ -680,10 +682,10 @@ function renderModelTotals(A){
 /* ---------------- 0—24 时分布 ---------------- */
 function renderHour(A){
   var isToday=hourMode==='today',dayStr=focusDayKey();
-  var src=isToday?A.thb:A.hb;
+  var src=isToday?A.thb:A.hball;
   var hn=$('#hourNote'),hs=$('#hourSub');
   function sum(s){return s?s.reduce(function(a,b){return a+b;},0):0;}
-  /* 仅当日按当日消耗重选排序，避免「今天活跃的模型」被窗口总量挤掉；
+  /* 仅当日按当日消耗重选排序，避免「今天活跃的模型」被全量总量挤掉；
      曲线数量由页面 #hourTop 下拉控制（TOP 3 / 5 / 10 / 全部，0=全部）。 */
   var order=isToday
     ?models.map(function(m,i){return i;}).filter(function(i){return sum(src[i])>0;})
@@ -692,13 +694,10 @@ function renderHour(A){
   var top=hourTop>0?order.slice(0,hourTop):order;
   if(hn)hn.textContent=isToday
     ?('仅 '+dayStr+' 当日 · 0—23 时逐时消耗（尚未到的时段为 0）')
-    :(dayMode?('指定日 '+dayKey+' · 0—23 时逐时消耗')
-      :(win?('周期 '+winLabel()+' · 截至 '+dayStr+'（含当日）· 同一时段跨日累加，非当日曲线')
-        :'自定义窗口 · 同一时段跨日累加，非当日曲线'));
+    :'全部数据累计 · 0—23 时同一时段跨日累加（不限时间窗口）';
   if(hs)hs.textContent=(isToday
     ?'每条曲线 = 当日该时段的实际消耗 · 未来时段为 0'
-    :(dayMode?'每条曲线 = 指定日该时段的实际消耗'
-      :'每条曲线 = 窗口内所有天在同一时段的消耗总和'))
+    :'每条曲线 = 全部数据在该时段的消耗总和（不限时间窗口）')
     +' · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗'
     +(top.length?' · 当前显示 '+(hourTop>0?'TOP ':'全部 ')+top.length+' 模型':'');
   if(!top.length){$('#hourChart').innerHTML='<div class="cap">'
@@ -836,7 +835,7 @@ function renderHeat(A){
     return '<div class="chip2"><span>'+names[i]+'</span><b>'
       +pct(v,bandTotal).toFixed(1)+'%</b></div>';}).join('')+'</div>';
   var scope=dayMode?('指定日 '+dayKey+' · '):'';
-  var note=scope+(heatView==='day'?'每行一个自然日 · 每格一小时 · 空窗日留白 · 悬浮看数值'
+  var note=scope+(heatView==='day'?'仅当日一行 · 每格一小时 · 悬浮看数值'
     :heatView==='week'?'最近 7 个自然日 · 每格一天的消耗 · 悬浮看数值'
     :'本月 1 日起共 '+monthDays(anchor)+' 天 · 每格一天的消耗 · 未来日期留空 · 悬浮看数值');
   var head='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
@@ -845,7 +844,8 @@ function renderHeat(A){
   var legend='<div class="hmlegend">低 '+sw+' 高</div>';
   var body='';
   if(heatView==='day'){
-    var days=daySeq(7),peak=1;
+    /* 日档只显示当日一行（锚点日 = 指定日 / 自定义终点 / 当日），其余日期不渲染 */
+    var days=[focusDayKey()],peak=1;
     days.forEach(function(dk){(A.hm[dk]||[]).forEach(function(v){if(v>peak)peak=v;});});
     /* 日期文字与热力格必须放进同一张 SVG 整体缩放：旧版日期是固定高度的
        HTML 标签列，而 SVG 自适应容器宽度整体缩放，两套行距缩放比例不同，
@@ -917,16 +917,26 @@ function renderHeat(A){
 /* ---------------- 工作空间 / 下钻 ---------------- */
 function heatLevel(v,avg){if(v<=0)return 0;
   return Math.min(7,Math.max(1,1+Math.floor(Math.log(v/avg/0.001)/Math.log(350)*7)));}
-/* 分布列粒度：day=聚焦日 24 格（每小时）/ week=近 7 个自然日每天 1 格 / month=锚点所在
-   自然月每天 1 格。锚点与「日活分布」卡同口径：指定日 > 数据末日 > 今天。 */
+/* 分布列粒度：day=聚焦日 24 格（每小时）/ week=每天 1 格 / month=每天 1 格。
+   跨度跟随全局时间窗口：近 N 天 → N 格（周档最多 7 格、月档最多当月天数）；
+   总量模式与长自定义区间取自然跨度（周 7 格 / 当月天数格）。指定日 = 1 天窗口。
+   锚点与「日活分布」卡同口径：指定日 > 自定义区间终点 > 窗口内最晚有数据日。 */
 function granSpec(A){
   var a=new Date(anchorDayKey(A)+'T00:00:00');
   if(wsGran==='day')return {list:[fm(a)],hourly:true,label:'日 · 24 时'};
-  if(wsGran==='week'){var out=[];
-    for(var i=6;i>=0;i--)out.push(fm(new Date(a.getTime()-i*86400e3)));
-    return {list:out,hourly:false,label:'周 · 近 7 天'};}
-  var y=a.getFullYear(),m=a.getMonth(),n=new Date(y,m+1,0).getDate(),out=[];
-  for(var d=1;d<=n;d++)out.push(fm(new Date(y,m,d)));
+  /* 窗口自然日数：指定日=1；总量=0（不限）；周期窗口=win 天；自定义区间=区间天数 */
+  var wd=dayMode?1:(allMode?0:(win||(cLo&&cHi?Math.max(1,Math.round((cHi-cLo)/1440)):0)));
+  function lastDays(n){var out=[];
+    for(var i=n-1;i>=0;i--)out.push(fm(new Date(a.getTime()-i*86400e3)));
+    return out;}
+  if(wsGran==='week'){
+    var n=wd?Math.min(wd,7):7;
+    return {list:lastDays(n),hourly:false,
+      label:wd===1?'1 天':(wd===2?'2 天':(wd&&wd<7?'近 '+wd+' 天':'周 · 近 7 天'))};}
+  var y=a.getFullYear(),m=a.getMonth(),n2=new Date(y,m+1,0).getDate();
+  if(wd&&wd<n2)return {list:lastDays(wd),hourly:false,label:wd===1?'1 天':'近 '+wd+' 天'};
+  var out=[];
+  for(var d=1;d<=n2;d++)out.push(fm(new Date(y,m,d)));
   return {list:out,hourly:false,label:'月 · 当月'};
 }
 /* 三档粒度共用 heatLevel 对数色阶，avg 按粒度校准：让「全局平均格子」都落在
@@ -946,9 +956,11 @@ function shdCells(entry,spec,avg){var per={};
   entry.rs.forEach(function(r){var d=new Date(r[0]*60000),dk=fm(d);
     (per[dk]=per[dk]||new Array(24).fill(0))[d.getHours()]+=r[2];});
   return vizCellsG(per,spec,avg);}
-function rowHtml(attrs,nm,tk,share,sub,viz){
+function pchips(ps){return ps.map(function(p){
+  return '<span class="pchip">'+esc(PLAT[p]||'')+'</span>';}).join('');}
+function rowHtml(attrs,nm,plat,tk,share,sub,viz){
   return '<div class="wsrow click" '+attrs+'><span class="nm" title="'+esc(nm)+'">'
-    +esc(nm)+'</span><span class="tk">'+fmt(tk)
+    +esc(nm)+'</span><span class="wplat">'+plat+'</span><span class="tk">'+fmt(tk)
     +'</span><span class="sh">'+share+'<small>· '+sub+'</small></span>'
     +'<span class="wviz">'+viz+'</span><span class="chev">›</span></div>';}
 /* 工作空间榜计数提示：搜索态显示匹配数且不受 TOP 限制，避免榜外项搜不到 */
@@ -966,21 +978,18 @@ function renderPanel(A){
   var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
   /* 列表态限高滚动；会话详情自带散点/明细表滚动区，去掉限高避免嵌套滚动 */
   if(panel)panel.classList.add('scrollbox');
-  /* 平台链：列出当前数据涉及的全部平台（随全局平台筛选联动） */
-  var pset={};
-  SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;pset[s.p]=1;});
-  var pk=Object.keys(pset).map(Number).sort(function(a,b){return a-b;});
-  var pchip=$('#wsPlats');
-  if(pchip)pchip.innerHTML=pk.map(function(p){return '<span class="pchip">'+esc(PLAT[p]||'')+'</span>';}).join('');
   var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
   var spec=granSpec(A),avgG=granAvg(avgD);
-  var whd={};
+  var whd={},wplats={};
   SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
     if(state.ws!==null&&s.w!==state.ws)return;
     for(var ri=0;ri<s.r.length;ri++){var r=s.r[ri];if(!inWin(r[0]))continue;
       var d=new Date(r[0]*60000),dk=fm(d);
       (whd[s.w]=whd[s.w]||{});(whd[s.w][dk]=whd[s.w][dk]||new Array(24).fill(0));
       whd[s.w][dk][d.getHours()]+=r[2];}});
+  /* 每个工作空间涉及的平台（随窗口与平台筛选联动），供行内平台列使用 */
+  SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
+    if(A.ws[s.w]&&A.ws[s.w].tt>0)(wplats[s.w]=wplats[s.w]||{})[s.p]=1;});
   if(state.ws===null){
     crumb.style.display='none';tools.style.display='block';showWsCtrls(true);
     $('#wsTitle').textContent='工作空间 & 会话消耗活跃分布';
@@ -990,11 +999,11 @@ function renderPanel(A){
       setWsNote(srAll.length,'会话');
       var sr=(q||!wsTop)?srAll:srAll.slice(0,wsTop);
       if(!sr.length){panel.innerHTML='<div class="cap">无匹配的会话</div>';return;}
-      panel.innerHTML='<div class="wshead"><span>会话</span><span>Token</span>'
+      panel.innerHTML='<div class="wshead"><span>会话</span><span>平台</span><span>Token</span>'
         +'<span>占比 / 轮次</span><span>分布（'+spec.label+'）</span><span></span></div>'
         +sr.map(function(x){return rowHtml('data-si="'+x.i+'" data-tokens="'+x.tt
           +'" data-sessions="'+x.tn+'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
+          x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
       return;}
     var order=Object.keys(A.ws).map(Number).filter(function(w){return A.ws[w].tt>0;});
     order.sort(function(a,b){return wsSort==='tokens'
@@ -1004,11 +1013,12 @@ function renderPanel(A){
     if(!q&&wsTop)order=order.slice(0,wsTop);
     if(!order.length){panel.innerHTML='<div class="cap">'
       +(A.tot?'无匹配的工作空间':'该时间范围内无数据')+'</div>';return;}
-    panel.innerHTML='<div class="wshead"><span>工作空间</span><span>Token</span>'
+    panel.innerHTML='<div class="wshead"><span>工作空间</span><span>平台</span><span>Token</span>'
       +'<span>占比 / 会话</span><span>分布（'+spec.label+'）</span><span></span></div>'
       +order.map(function(w){return rowHtml('data-ws="'+w+'" data-tokens="'+A.ws[w].tt
         +'" data-sessions="'+(A.ws[w].cnt||0)+'" data-name="'+esc(WS[w].toLowerCase())+'"',
-        WS[w],A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
+        WS[w],pchips(Object.keys(wplats[w]||{}).map(Number).sort(function(a,b){return a-b;})),
+        A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
         vizCellsG(whd[w]||{},spec,avgG));}).join('');
     return;}
   showWsCtrls(false);   // 下钻到会话列表/详情时隐藏 TOP 控件与计数
@@ -1026,7 +1036,7 @@ function renderPanel(A){
     panel.innerHTML=arr.map(function(x){return rowHtml('data-si="'+x.i
       +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
       +'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
+      x.s.t,pchips([x.s.p]),x.tt,pct(x.tt,A.tot).toFixed(1)+'%',x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
     return;}
   var s=entry;
   if(panel)panel.classList.remove('scrollbox');
@@ -1847,22 +1857,24 @@ def _workspace_card(summary: Summary) -> str:
         return '<div class="cap">暂无数据</div>'
     total = summary.total_tokens or 1
     full = _ws_order(summary)
-    # 与 JS 默认粒度一致（#wsGran 默认「周 · 7 天」）：首屏 7 格占位，JS 加载后
-    # 按当前窗口与粒度重绘接管。
-    head = ('<div class="wshead"><span>工作空间</span><span>Token</span><span>占比 / 会话</span>'
-            '<span>分布（周 · 近 7 天）</span><span></span></div>')
+    # 与 JS 默认粒度一致（#wsGran 默认「日 · 24 时」）：首屏 24 格占位，JS 加载后
+    # 按当前窗口与粒度重绘接管；平台列取该工作空间涉及的全部平台。
+    head = ('<div class="wshead"><span>工作空间</span><span>平台</span><span>Token</span>'
+            '<span>占比 / 会话</span><span>分布（日 · 24 时）</span><span></span></div>')
     rows = []
     for idx, w in enumerate(full[:DEFAULT_WS_TOP]):
         info = summary.by_workspace[w]
-        sessions = len(summary.ws_sessions.get(w, ()))
-        segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 7
+        sessions = summary.ws_sessions.get(w, ())
+        chips = "".join(f'<span class="pchip">{e(p)}</span>' for p in sorted({p for p, _ in sessions}))
+        segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 24
         name = e(w)
         rows.append(
             f'<div class="wsrow click" data-ws="{idx}">'
             f'<span class="nm" title="{name}">{name}</span>'
+            f'<span class="wplat">{chips}</span>'
             f'<span class="tk">{fmt(info["tokens"])}</span>'
             f'<span class="sh">{info["tokens"] / total * 100:.1f}%'
-            f'<small>· {sessions} 会话</small></span>'
+            f'<small>· {len(sessions)} 会话</small></span>'
             f'<span class="wviz">{segs}</span><span class="chev">›</span></div>'
         )
     return head + "".join(rows)
