@@ -130,6 +130,29 @@ class TestRender(unittest.TestCase):
         self.assertIn("var days=[focusDayKey()]", html)
         self.assertIn("仅当日一行", html)
 
+    def test_detail_cards_use_total_scope(self):
+        """明细卡一律按「总量」口径：工作空间/会话清单、单次请求大小分布、0—24 时累计档。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        # 工作空间与会话清单按总量（占比分母用全量 A.totAll）
+        self.assertIn("A.wsT[s.w].tt", html)
+        self.assertIn("A.sessT.push", html)
+        self.assertIn("pct(x.tt,A.totAll)", html)
+        self.assertIn("A.totAll)", html)
+        # 单次请求大小分布整卡按总量（含 TOP 排序与 50%/90% 分位）
+        self.assertIn("A.sizesAll[mi]", html)
+        self.assertIn("A.gp50All", html)
+        # 0—24 时「累计」档的模型排序按全量
+        self.assertIn("orderByTokensAll(A)", html)
+        # 已被总量桶取代的窗口口径结构应清理干净
+        for dead in ("A.sizes[", "A.gp50;", "A.ws[", "A.sess.push"):
+            self.assertNotIn(dead, html)
+
+    def test_heat_level_follows_palette_length(self):
+        """色阶档位不得超出色板长度：越界会取到 undefined，导致有数据的格子变透明。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn("var top=Math.max(1,HEAT.length-1)", html)
+        self.assertIn("(v>0?HEAT[heatLevel(v,avg)]:'var(--surface2)')", html)
+
     def test_hourly_card_follows_top_n(self):
         """首屏图例/曲线数跟随 top_n，0 表示全部模型（与 JS 口径一致）。"""
         models = ("deepseek-chat", "claude-sonnet-4-5", "gpt-4o",
