@@ -23,7 +23,7 @@ from .aggregate import summarize
 from .brands import BRAND_COLORS, THEMES
 from .pricing import load_prices
 from .registry import ScanResult, all_adapters, names, scan
-from .render import render_html, summary_json
+from .render import DEFAULT_VIEW_DAYS, DEFAULT_VIEW_LABEL, render_html, summary_json
 
 
 def mapping_pair(text: str) -> tuple[str, str]:
@@ -70,6 +70,20 @@ def window_days(since: int | None) -> int | None:
         return 30
     days = round((datetime.now().timestamp() - since) / 86400)
     return days if 0 <= days <= 365 else None
+
+
+def view_window(since: int | None) -> tuple[str, int | None]:
+    """看板 HTML 的展示窗口 (胶囊标签, 天数)。
+
+    与 :func:`window_label` / :func:`window_days` 刻意区分：那两个函数还服务于
+    agent_api 的 JSON / 简报，其中 summary 聚合的是「无 --since = 全历史」数据，
+    标签必须与实际数据范围一致（近 30 天口径）。看板则不同 —— 请求级明细全量
+    嵌入 HTML，由 JS 按窗口重新聚合，所以可以默认只聚焦近 1 天，用户随时能切回
+    近 30 天 / 总量，不会丢数据。
+    """
+    if since is None:
+        return DEFAULT_VIEW_LABEL, DEFAULT_VIEW_DAYS
+    return window_label(since), window_days(since)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -179,10 +193,9 @@ def _emit(args: argparse.Namespace, result, summary, default_html: str) -> int:
     elif args.format == "table":
         text = _table(summary, result)
     else:
-        label = window_label(since)
+        label, expected = view_window(since)
         note = getattr(args, "window_note", "")
         if not note:
-            expected = window_days(since)
             if expected and summary.active_days and summary.active_days < expected:
                 note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
                         "日均按有数据日计算，空窗不计入")
@@ -192,7 +205,7 @@ def _emit(args: argparse.Namespace, result, summary, default_html: str) -> int:
             title=getattr(args, "title", "TokenBoard · 消耗洞察"),
             window_note=note,
             window_label=label,
-            window_days=window_days(since),
+            window_days=expected,
             custom_range=(since, until)
             if (until or (since and window_days(since) is None)) else None,
             prices=prices,
@@ -370,9 +383,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         for error in result.errors:
             print(f"[warn] {error}", file=sys.stderr)
         summary = summarize(result.records, cfg["prices"])
-        label = window_label(cfg["since"])
+        label, expected = view_window(cfg["since"])
         note = ""
-        expected = window_days(cfg["since"])
         if expected and summary.active_days and summary.active_days < expected:
             note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
                     "日均按有数据日计算，空窗不计入")

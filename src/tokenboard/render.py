@@ -32,6 +32,12 @@ from .pricing import price_of
 _SANS = '-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif'
 _MONO = 'ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace'
 
+# 看板页面默认聚焦的展示窗口。只影响「周期胶囊初始高亮 + JS 聚合窗口」，
+# 不改变扫描口径：无 --since 时仍扫描全部历史并把请求级明细全量嵌入 HTML，
+# 因此用户随时可切到近 30 天 / 总量。CLI 与 serve 共用这两个常量，避免首屏不一致。
+DEFAULT_VIEW_DAYS = 1
+DEFAULT_VIEW_LABEL = "1 天"
+
 _CSS = r"""
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--sans:__SANS__;--mono:__MONO__}
@@ -340,7 +346,7 @@ var genMin=D.genMin||0;
    兼容旧页面：没有 dayAnchor 时退回 genMin。 */
 var dayAnchor=D.dayAnchor||genMin;
 function todayDate(){return new Date((dayAnchor-1440)*60000);} // 当日 00:00
-var win=(D.win!=null?D.win:30),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
+var win=(D.win!=null?D.win:__VIEW_DAYS__),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
 if(D.custom)win=0;
 var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
 var platFilter=-1;
@@ -1330,7 +1336,7 @@ def _payload(
         "gen": generated,
         "genMin": last_ts // 60,
         "dayAnchor": day_anchor,
-        "win": window_days_ if window_days_ is not None else (None if custom else 30),
+        "win": window_days_ if window_days_ is not None else (None if custom else DEFAULT_VIEW_DAYS),
         "custom": custom,
         "models": models,
         "palette": [palette[m] for m in models],
@@ -1736,8 +1742,8 @@ def render_html(
     title: str = "TokenBoard · 消耗洞察",
     generated: str | None = None,
     window_note: str = "",
-    window_label: str = "近 30 天",
-    window_days: int | None = None,
+    window_label: str = DEFAULT_VIEW_LABEL,
+    window_days: int | None = DEFAULT_VIEW_DAYS,
     custom_range: tuple[int | None, int | None] | None = None,
     prices: dict | None = None,
 ) -> str:
@@ -1843,7 +1849,8 @@ def render_html(
                  .replace("__HEAT_D_JS__", _heat_json("dark"))
                  .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP))
                  .replace("__SESS_TOP__", str(DEFAULT_SESSION_TOP))
-                 .replace("__WS_TOP__", str(DEFAULT_WS_TOP)))
+                 .replace("__WS_TOP__", str(DEFAULT_WS_TOP))
+                 .replace("__VIEW_DAYS__", str(DEFAULT_VIEW_DAYS)))
     replacements = {
         "__TITLE__": e(title),
         "__SUBTITLE__": subtitle,

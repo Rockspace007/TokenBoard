@@ -17,6 +17,7 @@ Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
 - **多平台统一**：一个 `UsageRecord` 契约吃下 6 类日志；新增平台只写一个 adapter（四步法见文档）。
 - **页面可交互**：周期胶囊、日期范围与**指定日日历**都真切换（请求级明细嵌入页面，JS 按同一口径重算）、
   工作空间 → 会话 → 请求三级下钻、模型点选聚焦、跟随式悬浮明细、单文件离线全都有。
+  **页面默认聚焦「1 天」**；扫描本身仍是全历史、明细全量嵌入，所以随时可切到近 30 天或「总量」，不会丢数据。
 - **当日对齐**：所有「近 N 天」与日活日/周/月视图都以**生成当日**为锚点、按自然日计算，
   不是从最后一条日志往前推的滚动小时窗；空窗日留白，周期口径与页眉「数据截至」一致。
 - **指定日查看**：除 1/3/7/30 天周期、自定义日期区间与「总量」外，**点击「指定日」整颗 pill 即弹出原生日历，
@@ -67,7 +68,7 @@ macOS 还可以在 Finder 里**双击 `see.command`**（参数可直接透传；
 pip install git+https://github.com/Rockspace007/TokenBoard.git
 
 tokenboard platforms                   # 看本机有哪些平台日志
-tokenboard scan                        # 生成 ./tokenboard.html（近 30 天）
+tokenboard scan                        # 生成 ./tokenboard.html（页面默认聚焦 1 天，可切 30 天/总量）
 tokenboard scan --since 7d --out week.html
 tokenboard scan --format json          # 结构化输出，给脚本 / Agent 用
 tokenboard probe --path ~/some/logs    # 新平台接入前先看字段命中率
