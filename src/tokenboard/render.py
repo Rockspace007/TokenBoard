@@ -440,9 +440,17 @@ function winLabel(){return dayMode?('指定日 '+dayKey)
   :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口'));}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
-/* 「聚焦日」= 指定日模式下所选的那天，否则为生成当日。
-   0—24 时分布的「仅当日」与逐时数据 A.thb 都以它为准。 */
-function focusDayKey(){return dayMode?dayKey:fm(todayDate());}
+/* 「聚焦日」= 指定日模式下所选的那天，否则为自定义区间终点日，再否则为生成当日。
+   0—24 时分布的「仅当日」与逐时数据 A.thb 都以它为准；随之切换时间选择会重定位。 */
+function focusDayKey(){return dayMode?dayKey:(cHi?fm(new Date(cHi*60000)):fm(todayDate()));}
+/* 全局时间锚点（自然日 key）：作为「日/周/月」三档明细视图与 0—24 时「仅当日」的
+   基准日。口径与全局时间选择一致：指定日 > 自定义区间终点 > 周期/总量窗口内最晚有数据日。 */
+function anchorDayKey(A){
+  if(dayMode)return dayKey;
+  if(cHi)return fm(new Date(cHi*60000));
+  var dks=A?Object.keys(A.daily).sort():[];
+  return dks.length?dks[dks.length-1]:fm(todayDate());
+}
 function dayStartMin(k){return Math.floor(new Date(k+'T00:00:00').getTime()/60000);}
 /* 近 N 天 = 含生成当日在内的 N 个自然日：[当日-(N-1)天 00:00, ∞)。
    右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。
@@ -809,14 +817,10 @@ function renderHeat(A){
   if(!dayKeys.length){$('#dayhourCard').innerHTML=
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h3>日活分布</h3>'
     +seg+'</div><div class="cap">该时间范围内无数据</div>';return;}
-  /* 常规「近 N 天」锚定「生成当日」向前取自然日序列（含空窗日，诚实显示）；
-     自定义历史日期窗口仍锚定窗口内最后有数据日，否则热力图会整片落在窗口之外。
-     数据里存在更晚的日期（如导入未来时间戳）时以数据末日为准，避免被截断。 */
-  var lastData=new Date(dayKeys[dayKeys.length-1]+'T00:00:00');
-  var today=todayDate();
-  /* 指定日模式以所选日为序列锚点，其余模式沿用原口径 */
-  var anchor=dayMode?new Date(dayKey+'T00:00:00')
-    :(win?(today.getTime()>lastData.getTime()?today:lastData):lastData);
+  /* 序列锚点跟随全局时间选择：指定日 → 所选日；自定义区间 → 区间终点日；
+     周期/总量窗口 → 窗口内最晚有数据日（上限为生成当日）。切换时间选择时，
+     日/周/月三档明细会重新定位到对应日所在的日/周/月。 */
+  var anchor=new Date(anchorDayKey(A)+'T00:00:00');
   function daySeq(n){var out=[];
     for(var i=n-1;i>=0;i--)out.push(fm(new Date(anchor.getTime()-i*86400e3)));
     return out;}
@@ -916,11 +920,7 @@ function heatLevel(v,avg){if(v<=0)return 0;
 /* 分布列粒度：day=聚焦日 24 格（每小时）/ week=近 7 个自然日每天 1 格 / month=锚点所在
    自然月每天 1 格。锚点与「日活分布」卡同口径：指定日 > 数据末日 > 今天。 */
 function granSpec(A){
-  var dks=Object.keys(A.daily).sort();
-  var lastData=dks.length?new Date(dks[dks.length-1]+'T00:00:00'):todayDate();
-  var today=todayDate();
-  var a=dayMode?new Date(dayKey+'T00:00:00')
-    :(win?(today.getTime()>lastData.getTime()?today:lastData):lastData);
+  var a=new Date(anchorDayKey(A)+'T00:00:00');
   if(wsGran==='day')return {list:[fm(a)],hourly:true,label:'日 · 24 时'};
   if(wsGran==='week'){var out=[];
     for(var i=6;i>=0;i--)out.push(fm(new Date(a.getTime()-i*86400e3)));
