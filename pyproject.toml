@@ -29,7 +29,6 @@ dependencies = []
 [project.optional-dependencies]
 # 可选：Trae 用量页抓取（真实浏览器会话）。核心包运行时不依赖它。
 capture = ["playwright>=1.40"]
-dev = []
 
 [project.scripts]
 tokenboard = "tokenboard.cli:main"
