@@ -322,10 +322,9 @@ __HERO__
 <span class="spacer"></span>
 <button class="mini on" data-s="tokens" type="button">按 Token</button>
 <button class="mini" data-s="sessions" type="button">按会话数</button>
-<select class="mini" id="wsMult" aria-label="每日切片数">
-<option value="1">1X</option><option value="2">2X</option>
-<option value="3" selected>3X</option><option value="4">4X</option>
-<option value="6">6X</option><option value="8">8X</option></select></div></div>
+<select class="mini" id="wsGran" aria-label="分布粒度">
+<option value="day">日 · 24 时</option><option value="week" selected>周 · 7 天</option>
+<option value="month">月 · 当月</option></select></div></div>
 <div id="wsPanel" class="scrollbox">__WORKSPACES__</div></div>
 <div class="card"><div class="cardhead">
 <h3 id="sessTitle">会话消耗 Top __SESS_TOP__</h3>
@@ -373,7 +372,7 @@ var dayAnchor=D.dayAnchor||genMin;
 function todayDate(){return new Date((dayAnchor-1440)*60000);} // 当日 00:00
 var win=(D.win!=null?D.win:__VIEW_DAYS__),cLo=D.custom?D.custom[0]:0,cHi=D.custom?D.custom[1]:0;
 if(D.custom)win=0;
-var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsMult=3,wsMode='ws';
+var wsSort='tokens',q='',state={ws:null,ses:null},selModel=null,wsGran='week',wsMode='ws';
 var platFilter=-1;
 var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天每天 / month=近30天每天
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
@@ -914,18 +913,39 @@ function renderHeat(A){
 /* ---------------- 工作空间 / 下钻 ---------------- */
 function heatLevel(v,avg){if(v<=0)return 0;
   return Math.min(7,Math.max(1,1+Math.floor(Math.log(v/avg/0.001)/Math.log(350)*7)));}
-function vizCells(perDay,days,avg){var h='';
-  days.forEach(function(dk){var arr=perDay[dk]||[];
-    for(var k=0;k<wsMult;k++){
-      var a=Math.floor(24*k/wsMult),b=Math.floor(24*(k+1)/wsMult),v=0;
-      for(var hh=a;hh<b;hh++)v+=arr[hh]||0;
-      h+='<i style="background:'+HEAT[heatLevel(v,avg)]
-        +'" title="'+esc(dk+' '+a+':00–'+b+':00 · '+fmt(v))+'"></i>';}});
+/* 分布列粒度：day=聚焦日 24 格（每小时）/ week=近 7 个自然日每天 1 格 / month=锚点所在
+   自然月每天 1 格。锚点与「日活分布」卡同口径：指定日 > 数据末日 > 今天。 */
+function granSpec(A){
+  var dks=Object.keys(A.daily).sort();
+  var lastData=dks.length?new Date(dks[dks.length-1]+'T00:00:00'):todayDate();
+  var today=todayDate();
+  var a=dayMode?new Date(dayKey+'T00:00:00')
+    :(win?(today.getTime()>lastData.getTime()?today:lastData):lastData);
+  if(wsGran==='day')return {list:[fm(a)],hourly:true,label:'日 · 24 时'};
+  if(wsGran==='week'){var out=[];
+    for(var i=6;i>=0;i--)out.push(fm(new Date(a.getTime()-i*86400e3)));
+    return {list:out,hourly:false,label:'周 · 近 7 天'};}
+  var y=a.getFullYear(),m=a.getMonth(),n=new Date(y,m+1,0).getDate(),out=[];
+  for(var d=1;d<=n;d++)out.push(fm(new Date(y,m,d)));
+  return {list:out,hourly:false,label:'月 · 当月'};
+}
+/* 三档粒度共用 heatLevel 对数色阶，avg 按粒度校准：让「全局平均格子」都落在
+   比值 ≈0.33（与旧版 3X 的视觉档次一致），避免天格/小时格全顶格或全空色 */
+function granAvg(avgD){return wsGran==='day'?avgD/8:avgD*3;}
+function vizCellsG(perDay,spec,avg){var todayK=fm(todayDate()),h='';
+  spec.list.forEach(function(dk){var arr=perDay[dk]||[],fut=dk>todayK;
+    if(spec.hourly){
+      for(var hh=0;hh<24;hh++){var v=arr[hh]||0;
+        h+='<i style="background:'+HEAT[heatLevel(v,avg)]+'" title="'
+          +esc(dk+' '+hh+':00–'+(hh+1)+':00 · '+(fut?'尚未到达':fmt(v)))+'"></i>';}}
+    else{var v=0;for(var i=0;i<24;i++)v+=arr[i]||0;
+      h+='<i style="background:'+HEAT[heatLevel(v,avg)]+'" title="'
+        +esc(dk+' · '+(fut?'尚未到达':fmt(v)))+'"></i>';}});
   return h;}
-function shdCells(entry,days,avg){var per={};
+function shdCells(entry,spec,avg){var per={};
   entry.rs.forEach(function(r){var d=new Date(r[0]*60000),dk=fm(d);
     (per[dk]=per[dk]||new Array(24).fill(0))[d.getHours()]+=r[2];});
-  return vizCells(per,days,avg);}
+  return vizCellsG(per,spec,avg);}
 function rowHtml(attrs,nm,tk,share,sub,viz){
   return '<div class="wsrow click" '+attrs+'><span class="nm" title="'+esc(nm)+'">'
     +esc(nm)+'</span><span class="tk">'+fmt(tk)
@@ -946,8 +966,8 @@ function renderPanel(A){
   var panel=$('#wsPanel'),crumb=$('#wsCrumb'),tools=$('#wsTools');
   /* 列表态限高滚动；会话详情自带散点/明细表滚动区，去掉限高避免嵌套滚动 */
   if(panel)panel.classList.add('scrollbox');
-  var days=Object.keys(A.hm).sort().slice(-7);
   var avgD=A.tot/(Object.keys(A.daily).length||1);if(!(avgD>0))avgD=1;
+  var spec=granSpec(A),avgG=granAvg(avgD);
   var whd={};
   SESS.forEach(function(s){if(platFilter>=0&&s.p!==platFilter)return;
     if(state.ws!==null&&s.w!==state.ws)return;
@@ -965,10 +985,10 @@ function renderPanel(A){
       var sr=(q||!wsTop)?srAll:srAll.slice(0,wsTop);
       if(!sr.length){panel.innerHTML='<div class="cap">无匹配的会话</div>';return;}
       panel.innerHTML='<div class="wshead"><span>会话</span><span>Token</span>'
-        +'<span>占比 / 轮次</span><span>分布（近 7 个有数据日）</span><span></span></div>'
+        +'<span>占比 / 轮次</span><span>分布（'+spec.label+'）</span><span></span></div>'
         +sr.map(function(x){return rowHtml('data-si="'+x.i+'" data-tokens="'+x.tt
           +'" data-sessions="'+x.tn+'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+          x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
       return;}
     var order=Object.keys(A.ws).map(Number).filter(function(w){return A.ws[w].tt>0;});
     order.sort(function(a,b){return wsSort==='tokens'
@@ -979,11 +999,11 @@ function renderPanel(A){
     if(!order.length){panel.innerHTML='<div class="cap">'
       +(A.tot?'无匹配的工作空间':'该时间范围内无数据')+'</div>';return;}
     panel.innerHTML='<div class="wshead"><span>工作空间</span><span>Token</span>'
-      +'<span>占比 / 会话</span><span>分布（近 7 个有数据日）</span><span></span></div>'
+      +'<span>占比 / 会话</span><span>分布（'+spec.label+'）</span><span></span></div>'
       +order.map(function(w){return rowHtml('data-ws="'+w+'" data-tokens="'+A.ws[w].tt
         +'" data-sessions="'+(A.ws[w].cnt||0)+'" data-name="'+esc(WS[w].toLowerCase())+'"',
         WS[w],A.ws[w].tt,pct(A.ws[w].tt,A.tot).toFixed(1)+'%',(A.ws[w].cnt||0)+' 会话',
-        vizCells(whd[w]||{},days,avgD));}).join('');
+        vizCellsG(whd[w]||{},spec,avgG));}).join('');
     return;}
   showWsCtrls(false);   // 下钻到会话列表/详情时隐藏 TOP 控件与计数
   var entry=null;
@@ -1000,7 +1020,7 @@ function renderPanel(A){
     panel.innerHTML=arr.map(function(x){return rowHtml('data-si="'+x.i
       +'" data-tokens="'+x.tt+'" data-sessions="'+x.tn
       +'" data-name="'+esc((x.s.t||'').toLowerCase())+'"',
-      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,days,avgD));}).join('');
+      x.s.t,x.tt,pct(x.tt,A.tot).toFixed(1)+'%',plabel(x.s.p)+' · '+x.tn+' 轮',shdCells(x,spec,avgG));}).join('');
     return;}
   var s=entry;
   if(panel)panel.classList.remove('scrollbox');
@@ -1154,7 +1174,7 @@ document.addEventListener('click',function(ev){
 });
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
-$('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+$('#wsGran').addEventListener('change',function(ev){wsGran=ev.target.value;renderAll();});
 var hourTopSel=$('#hourTop');
 if(hourTopSel)hourTopSel.addEventListener('change',function(ev){
   hourTop=+ev.target.value;if(LASTA)renderHour(LASTA);});
@@ -1846,13 +1866,15 @@ def _workspace_card(summary: Summary) -> str:
         return '<div class="cap">暂无数据</div>'
     total = summary.total_tokens or 1
     full = _ws_order(summary)
+    # 与 JS 默认粒度一致（#wsGran 默认「周 · 7 天」）：首屏 7 格占位，JS 加载后
+    # 按当前窗口与粒度重绘接管。
     head = ('<div class="wshead"><span>工作空间</span><span>Token</span><span>占比 / 会话</span>'
-            '<span>分布（近 7 个有数据日）</span><span></span></div>')
+            '<span>分布（周 · 近 7 天）</span><span></span></div>')
     rows = []
     for idx, w in enumerate(full[:DEFAULT_WS_TOP]):
         info = summary.by_workspace[w]
         sessions = len(summary.ws_sessions.get(w, ()))
-        segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 3
+        segs = '<i style="flex:1;background:var(--brand);opacity:.85"></i>' * 7
         name = e(w)
         rows.append(
             f'<div class="wsrow click" data-ws="{idx}">'

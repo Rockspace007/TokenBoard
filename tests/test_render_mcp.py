@@ -15,7 +15,7 @@ from tokenboard.aggregate import DEFAULT_HOUR_TOP, summarize  # noqa: E402
 from tokenboard.brands import palette_for  # noqa: E402
 from tokenboard.mcp_server import TOOLS, handle  # noqa: E402
 from tokenboard.models import SourceStatus, UsageRecord  # noqa: E402
-from tokenboard.render import _hourly_card, render_html, summary_json  # noqa: E402
+from tokenboard.render import _hourly_card, _workspace_card, render_html, summary_json  # noqa: E402
 
 TS = 1762344000
 
@@ -63,8 +63,27 @@ class TestRender(unittest.TestCase):
         for needle in ("单模型总量统计", "0—24 时分布 · 按模型",
                        "单次请求大小分布", "日活分布", "工作空间活跃分布",
                        "周期跟随全局时间窗口", "metricSeg", "window.TB_DATA=",
-                       "data-tip", "id=\"wsMult\""):
+                       "data-tip", "id=\"wsGran\""):
             self.assertIn(needle, html)
+
+    def test_ws_granularity_heatmap(self):
+        """分布列三档粒度下拉（日 24 时 / 周 7 天 / 月当月），默认周；首屏占位 7 格。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn('id="wsGran"', html)
+        self.assertIn('<option value="week" selected>周 · 7 天</option>', html)
+        for opt in ('<option value="day">日 · 24 时</option>',
+                    '<option value="month">月 · 当月</option>'):
+            self.assertIn(opt, html)
+        self.assertIn("wsGran='week'", html)
+        self.assertIn("分布（周 · 近 7 天）", html)
+        self.assertNotIn("分布（近 7 个有数据日）", html)
+        self.assertNotIn('id="wsMult"', html)
+        # Python 首屏占位格与默认粒度对齐：每行恰好 7 个 <i>
+        card = _workspace_card(self.summary)
+        row_count = card.count('class="wsrow click"')
+        self.assertGreater(row_count, 0)
+        self.assertEqual(card.count('<i style="flex:1;background:var(--brand)'),
+                         7 * row_count)
 
     def test_hour_top_select_defaults_to_three(self):
         """0—24 时分布卡提供 TOP 3/5/10/全部 下拉，默认选中 TOP 3。"""
