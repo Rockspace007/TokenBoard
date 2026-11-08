@@ -24,7 +24,13 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Iterable, Sequence
 
-from .aggregate import DEFAULT_DIST_TOP, DEFAULT_SESSION_TOP, DEFAULT_WS_TOP, Summary
+from .aggregate import (
+    DEFAULT_DIST_TOP,
+    DEFAULT_HOUR_TOP,
+    DEFAULT_SESSION_TOP,
+    DEFAULT_WS_TOP,
+    Summary,
+)
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
 from .models import SourceStatus, UsageRecord
 from .pricing import price_of
@@ -178,6 +184,10 @@ padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--sans)}
 select.mini{padding:5px 20px 5px 9px;color-scheme:light dark;white-space:nowrap}
 .cardhead>select.mini{flex:0 0 auto;min-width:100px;margin-left:auto}
 .cardhead>select.mini.wide{min-width:132px}
+/* 0—24 时分布卡有两个下拉（模型数量 + 时间口径）：用不可收缩容器一起靠右，
+   避免两个 margin-left:auto 互相抢空间、把说明挤没或裁掉第二个控件 */
+.hdtools{display:flex;align-items:center;gap:8px;flex:0 0 auto;margin-left:auto}
+.hdtools>select.mini{flex:0 0 auto;min-width:100px}
 .wssearch{border:1px solid var(--bd);background:var(--surface);color:var(--t1);font-size:10.5px;
 padding:5px 10px;border-radius:7px;width:130px;outline:none;font-family:var(--sans)}
 .wssearch:focus{border-color:var(--bds)}
@@ -325,8 +335,11 @@ __HERO__
 <div class="card" id="mtCard">__MODEL_TOTALS__</div>
 <div class="card"><div class="cardhead">
 <h3>0—24 时分布 · 按模型</h3><span class="hdnote" id="hourNote">周期跟随全局时间窗口 · 同一时段跨日累加（非当日曲线）</span>
+<div class="hdtools">
+<select class="mini" id="hourTop" aria-label="0—24 时分布显示模型数量">__HOUROPTS__</select>
 <select class="mini" id="hourMode" aria-label="0—24 时分布口径">
-<option value="win" selected>窗口累计</option><option value="today">仅当日</option></select></div>
+<option value="win" selected>窗口累计</option><option value="today">仅当日</option></select>
+</div></div>
 <span class="hdnote" id="hourSub">每条曲线 = 窗口内所有天在同一时段的消耗总和 · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗</span><div id="hourChart">__HOURLY__</div></div>
 <div class="card"><div class="cardhead">
 <h3>单次请求大小分布</h3><span class="hdnote" id="distNote">__DISTNOTE__</span>
@@ -366,6 +379,7 @@ var heatView='day';   // 日活分布视图：day=7天×24小时 / week=近7天�
 var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全部），与 Python 常量同源
 var sessTop=__SESS_TOP__;  // 会话消耗榜显示的条数（0=全部），与 Python 常量同源
 var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部），与 Python 常量同源
+var hourTop=__HOUR_TOP__;  // 0—24 时分布显示的曲线数（0=全部），与 Python 常量同源
 var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / today=仅聚焦日逐时
 /* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
    与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
@@ -661,6 +675,14 @@ function renderHour(A){
   var isToday=hourMode==='today',dayStr=focusDayKey();
   var src=isToday?A.thb:A.hb;
   var hn=$('#hourNote'),hs=$('#hourSub');
+  function sum(s){return s?s.reduce(function(a,b){return a+b;},0):0;}
+  /* 仅当日按当日消耗重选排序，避免「今天活跃的模型」被窗口总量挤掉；
+     曲线数量由页面 #hourTop 下拉控制（TOP 3 / 5 / 10 / 全部，0=全部）。 */
+  var order=isToday
+    ?models.map(function(m,i){return i;}).filter(function(i){return sum(src[i])>0;})
+       .sort(function(a,b){return sum(src[b])-sum(src[a]);})
+    :orderByTokens(A);
+  var top=hourTop>0?order.slice(0,hourTop):order;
   if(hn)hn.textContent=isToday
     ?('仅 '+dayStr+' 当日 · 0—23 时逐时消耗（尚未到的时段为 0）')
     :(dayMode?('指定日 '+dayKey+' · 0—23 时逐时消耗')
@@ -670,13 +692,8 @@ function renderHour(A){
     ?'每条曲线 = 当日该时段的实际消耗 · 未来时段为 0'
     :(dayMode?'每条曲线 = 指定日该时段的实际消耗'
       :'每条曲线 = 窗口内所有天在同一时段的消耗总和'))
-    +' · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗';
-  function sum(s){return s?s.reduce(function(a,b){return a+b;},0):0;}
-  /* 仅当日按当日消耗重选 TOP 2，避免「今天活跃的模型」被窗口总量挤掉 */
-  var top=isToday
-    ?models.map(function(m,i){return i;}).filter(function(i){return sum(src[i])>0;})
-       .sort(function(a,b){return sum(src[b])-sum(src[a]);}).slice(0,2)
-    :orderByTokens(A).slice(0,2);
+    +' · 点击图例聚焦单个模型 · 悬浮看该小时各模型消耗'
+    +(top.length?' · 当前显示 '+(hourTop>0?'TOP ':'全部 ')+top.length+' 模型':'');
   if(!top.length){$('#hourChart').innerHTML='<div class="cap">'
     +(isToday||dayMode?dayStr+' 当日暂无请求（可另选日期或切回周期窗口）':'暂无数据')+'</div>';
     hourCtx=[];return;}
@@ -1138,6 +1155,9 @@ document.addEventListener('click',function(ev){
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
 $('#wsMult').addEventListener('change',function(ev){wsMult=+ev.target.value;renderAll();});
+var hourTopSel=$('#hourTop');
+if(hourTopSel)hourTopSel.addEventListener('change',function(ev){
+  hourTop=+ev.target.value;if(LASTA)renderHour(LASTA);});
 var hourModeSel=$('#hourMode');
 if(hourModeSel)hourModeSel.addEventListener('change',function(ev){
   hourMode=ev.target.value;if(LASTA)renderHour(LASTA);});
@@ -1230,9 +1250,9 @@ function doImport(plat){
     /* 本机有数据的行本来就是「已导入」，快照模式下点「重新导入」不应覆盖成警告；
        只有还处于「未导入」的行才需要提示改用实时模式。 */
     if(st&&st.classList.contains('yet')){
-      st.className='impst warn';st.textContent='需用 see.command 实时模式';
+      st.className='impst warn';st.textContent='需用 serve.command 实时模式';
     }
-    if(btn)btn.title='双击打开的静态文件无法扫描本机日志；请用 ./see.command（serve 模式）打开后再导入';
+    if(btn)btn.title='双击打开的静态文件无法扫描本机日志；请用 ./serve.command（本地服务版）打开后再导入';
     return;
   }
   impBusy=true;
@@ -1579,8 +1599,10 @@ def _model_totals_card(summary: Summary, palette: dict[str, str]) -> str:
     )
 
 
-def _hourly_card(summary: Summary, palette: dict[str, str]) -> str:
-    top = summary.models[:2]
+def _hourly_card(summary: Summary, palette: dict[str, str],
+                 top_n: int = DEFAULT_HOUR_TOP) -> str:
+    # top_n=0 表示全部模型；summary.models 已按 Token 降序，与 JS 的 orderByTokens 同序
+    top = summary.models[:top_n] if top_n > 0 else summary.models
     if not top or not any(summary.hourly):
         return '<div class="cap">暂无数据</div>'
     width, base = 1240, 150
@@ -1921,6 +1943,12 @@ def render_html(
         f'{" selected" if value == DEFAULT_WS_TOP else ""}>{label}</option>'
         for value, label in ((5, "TOP 5"), (10, "TOP 10"), (0, "全部工作空间"))
     )
+    # 0—24 时分布·按模型：曲线数量下拉（默认 TOP 3），与 JS 的 hourTop 同源
+    hour_opts = "".join(
+        f'<option value="{value}"'
+        f'{" selected" if value == DEFAULT_HOUR_TOP else ""}>{label}</option>'
+        for value, label in ((3, "TOP 3"), (5, "TOP 5"), (10, "TOP 10"), (0, "全部模型"))
+    )
     ws_total = len(summary.by_workspace)
     ws_note = (
         f"共 {ws_total:,} 个工作空间 · 显示前 {min(DEFAULT_WS_TOP, ws_total)} 个"
@@ -1963,6 +1991,7 @@ def render_html(
                  .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP))
                  .replace("__SESS_TOP__", str(DEFAULT_SESSION_TOP))
                  .replace("__WS_TOP__", str(DEFAULT_WS_TOP))
+                 .replace("__HOUR_TOP__", str(DEFAULT_HOUR_TOP))
                  .replace("__VIEW_DAYS__", str(DEFAULT_VIEW_DAYS)))
     replacements = {
         "__TITLE__": e(title),
@@ -1978,6 +2007,7 @@ def render_html(
         "__SESSOPTS__": sess_opts,
         "__SESS_TOP__": str(DEFAULT_SESSION_TOP),
         "__WSOPTS__": ws_opts,
+        "__HOUROPTS__": hour_opts,
         "__WSNOTE__": ws_note,
         "__SESSION_TOP__": "",
         "__HERO__": hero,

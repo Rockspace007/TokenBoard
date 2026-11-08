@@ -19,9 +19,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      # v6 起运行在 Node 24（v5 的 Node 20 已被 runner 强制升级并告警），
+      # 且 tool-cache 下载对 5xx 有更完整的重试；Windows 上拉 Python 3.10
+      # 曾因 CDN 504 导致整个矩阵仅该节点失败。
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 

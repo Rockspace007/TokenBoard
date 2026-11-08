@@ -9,4 +9,4 @@
   2) MCP：``python -m tokenboard serve-mcp``
   3) Skill 版：见仓库根目录 ``SKILL.md``
 """
-__version__ = "0.4.2"
+__version__ = "0.5.0"

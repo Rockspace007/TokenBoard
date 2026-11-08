@@ -24,6 +24,10 @@ DEFAULT_SESSION_TOP = 10
 # 「工作空间活跃分布」默认展示的条数：静态首屏、下拉选中项、JS 初始值共用。
 DEFAULT_WS_TOP = 10
 
+# 「0—24 时分布·按模型」默认展示的曲线数：静态首屏、下拉选中项、JS 初始值共用。
+# 0 表示全部模型；可选值见 render_html 里的 hour_opts（3 / 5 / 10 / 全部）。
+DEFAULT_HOUR_TOP = 3
+
 
 def percentile(values: Sequence[int | float], q: float) -> float:
     """线性插值分位数；``q`` 取 0~100，空序列返回 0.0。"""

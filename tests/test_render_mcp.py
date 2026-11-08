@@ -11,10 +11,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tokenboard.aggregate import summarize  # noqa: E402
+from tokenboard.aggregate import DEFAULT_HOUR_TOP, summarize  # noqa: E402
+from tokenboard.brands import palette_for  # noqa: E402
 from tokenboard.mcp_server import TOOLS, handle  # noqa: E402
 from tokenboard.models import SourceStatus, UsageRecord  # noqa: E402
-from tokenboard.render import render_html, summary_json  # noqa: E402
+from tokenboard.render import _hourly_card, render_html, summary_json  # noqa: E402
 
 TS = 1762344000
 
@@ -64,6 +65,45 @@ class TestRender(unittest.TestCase):
                        "周期跟随全局时间窗口", "metricSeg", "window.TB_DATA=",
                        "data-tip", "id=\"wsMult\""):
             self.assertIn(needle, html)
+
+    def test_hour_top_select_defaults_to_three(self):
+        """0—24 时分布卡提供 TOP 3/5/10/全部 下拉，默认选中 TOP 3。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn('id="hourTop"', html)
+        self.assertIn('<option value="3" selected>TOP 3</option>', html)
+        for value in ("5", "10", "0"):
+            self.assertIn(f'<option value="{value}"', html)
+        self.assertIn("全部模型", html)
+        self.assertIn("var hourTop=3;", html)
+        # 占位符漏替换会让页面 JS 直接语法错误，必须锁住
+        self.assertNotIn("__HOUR_TOP__", html)
+        self.assertNotIn("__HOUROPTS__", html)
+
+    def test_hour_top_not_hardcoded_to_two(self):
+        """曲线数量由 hourTop 控制且已绑定 change，不能回退成硬编码 2 条。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn("hourTop>0?order.slice(0,hourTop):order", html)
+        self.assertNotIn(".slice(0,2)", html)
+        self.assertIn("$('#hourTop')", html)
+        self.assertIn('class="hdtools"', html)
+
+    def test_hourly_card_follows_top_n(self):
+        """首屏图例/曲线数跟随 top_n，0 表示全部模型（与 JS 口径一致）。"""
+        models = ("deepseek-chat", "claude-sonnet-4-5", "gpt-4o",
+                  "glm-4.6", "qwen-plus", "hy4-free")
+        records = [
+            UsageRecord(ts=TS + h * 3600, platform="workbuddy", workspace="proj",
+                        session_id=f"s{i}", model=m, input_tokens=1000 * (i + 1),
+                        output_tokens=100, total_tokens=1100 * (i + 1))
+            for i, m in enumerate(models) for h in range(0, 24, 3)
+        ]
+        summary = summarize(records)
+        palette = palette_for(summary.models)
+        self.assertEqual(DEFAULT_HOUR_TOP, 3)
+        for top_n, expected in ((1, 1), (3, 3), (5, 5), (10, 6), (0, 6)):
+            with self.subTest(top_n=top_n):
+                card = _hourly_card(summary, palette, top_n=top_n)
+                self.assertEqual(card.count("data-dm="), expected)
 
     def test_payload_escapes_closing_script(self):
         r = UsageRecord(ts=TS, platform="p", workspace="</script><b>x</b>",
