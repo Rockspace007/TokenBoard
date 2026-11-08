@@ -53,22 +53,32 @@ class SourcesCardTest(unittest.TestCase):
     def test_column_and_buttons(self):
         html = _sources_card(STATUS)
         self.assertIn(">导入状态</th>", html)
-        self.assertEqual(html.count('class="impbtn" data-plat='), len(STATUS))
+        # 每行一个可点按钮；已验证行按钮带 ghost 样式，故按 data-plat 计数
+        self.assertEqual(html.count('data-plat='), len(STATUS))
         self.assertIn('data-plat="codex"', html)
         self.assertIn('data-role="verify"', html)
-        self.assertIn("未导入", html)
+
+    def test_verified_row_is_imported_by_default(self):
+        """已验证平台的数据本来就在看板里，默认显示「已导入 / 重新导入」。"""
+        html = _sources_card(STATUS)
+        row = html.split("WorkBuddy", 1)[1].split("</tr>", 1)[0]
+        self.assertIn("✓ 已导入", row)
+        self.assertIn("重新导入", row)
+        self.assertNotIn(">导入<", row)
+
+    def test_unverified_row_is_pending_by_default(self):
+        """未验证平台需用户点「导入」按需接入。"""
+        html = _sources_card(STATUS)
+        row = html.split("OpenAI Codex CLI", 1)[1].split("</tr>", 1)[0]
+        self.assertIn("未导入", row)
+        self.assertIn(">导入<", row)
 
     def test_imported_row_shows_verified(self):
         html = _sources_card(STATUS, imported=["codex"])
-        self.assertIn("✓ 已导入", html)
-        self.assertIn("重新导入", html)
         row = html.split("OpenAI Codex CLI", 1)[1].split("</tr>", 1)[0]
+        self.assertIn("✓ 已导入", row)
+        self.assertIn("重新导入", row)
         self.assertIn('data-role="verify">已验证', row)
-
-    def test_not_imported_row_keeps_pending(self):
-        html = _sources_card(STATUS, imported=["codex"])
-        row = html.split("WorkBuddy", 1)[1].split("</tr>", 1)[0]
-        self.assertIn("未导入", row)
 
 
 class RenderImportInjectionTest(unittest.TestCase):

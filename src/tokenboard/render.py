@@ -1230,7 +1230,11 @@ function doImport(plat){
   var btn=cell&&cell.querySelector('.impbtn');
   var st=cell&&cell.querySelector('[data-role="impst"]');
   if(!IS_SERVE){
-    if(st){st.className='impst warn';st.textContent='需用 see.command 实时模式';}
+    /* 已验证平台默认就是「已导入」，快照模式下点「重新导入」不应把它覆盖成警告；
+       只有还处于「未导入」的行才需要提示改用实时模式。 */
+    if(st&&st.classList.contains('yet')){
+      st.className='impst warn';st.textContent='需用 see.command 实时模式';
+    }
     if(btn)btn.title='双击打开的静态文件无法扫描本机日志；请用 ./see.command（serve 模式）打开后再导入';
     return;
   }
@@ -1769,18 +1773,22 @@ def _sources_card(statuses: Sequence[SourceStatus], imported: Sequence[str] = ()
                 else '<span class="pill no" data-role="verify">未验证</span>')
         note = e(s.note) if s.note else ("" if s.verified else "本机没有真实日志可供核对")
         root = e(s.roots[0]) if s.roots else "—"
-        if is_imp:
-            imp_state = '<span class="impst ok">✓ 已导入</span>'
+        # 已验证 = 该平台日志本来就在统计里，初始即「已导入」；
+        # 未验证且未手动导入的才显示「未导入」，由用户点按钮按需接入。
+        # 状态 class 直接落在 data-role="impst" 这个 span 上（不嵌套），
+        # 前端才能用 classList.contains('yet') 判断是否还处于未导入。
+        if is_imp or s.verified:
+            imp_cls, imp_text = "impst ok", "✓ 已导入"
             btn_label, btn_cls = "重新导入", "impbtn ghost"
         else:
-            imp_state = '<span class="impst yet">未导入</span>'
+            imp_cls, imp_text = "impst yet", "未导入"
             btn_label, btn_cls = "导入", "impbtn"
         imp_cell = (
             '<td class="impcell" data-role="import">'
             f'<button type="button" class="{btn_cls}" data-plat="{e(s.name)}" '
             'title="扫描该平台日志并确认接入；未验证平台导入后一并纳入统计">'
             f'{btn_label}</button>'
-            f'<span data-role="impst">{imp_state}</span></td>'
+            f'<span class="{imp_cls}" data-role="impst">{imp_text}</span></td>'
         )
         rows.append(
             f'<tr><td style="color:var(--t1);font-weight:600">{e(s.display_name)}</td>'
