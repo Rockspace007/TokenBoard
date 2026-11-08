@@ -1,14 +1,15 @@
 # TokenBoard
 
-> 多平台 LLM Token 消耗看板 · 单文件离线 HTML · **可点击交互** · 零第三方依赖 · 数据不出本机
+> 多平台 LLM Token 消耗看板 · **本地服务版（可刷新）/ 静态 HTML 版（可分享）** · 可点击交互 · 零第三方依赖 · 数据不出本机
 
 把 WorkBuddy、Claude Code、Codex、Trae、OpenCode 等平台的**请求级真实 usage**
-统一成一张单文件 HTML 看板：结论先行、可逐级下钻到每一次请求。
-Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
+统一成一张可交互看板：结论先行、可逐级下钻到每一次请求。
+两种看法：起本地服务点「刷新」随时更新，或导出一个单文件离线 HTML 直接分发。
+Python 3.10+ 标准库即可运行，不装包、不联网；静态快照不发任何网络请求，服务版只与本机回环地址通信。
 
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
-![tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-92%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## 特性
@@ -34,7 +35,7 @@ Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
   0 条记录则明确提示「本机未安装或暂无日志，未导入数据」，状态列与导入按钮保持原样，绝不假装成功。
   对 `auto_discover=False` 的平台（Claude Code / Codex / Trae）尤其有用——它们默认不参与自动扫描。
   导入集合**只存本次 serve 进程内存**（不落盘），重启服务后需重新导入；
-  双击静态文件打开时按钮会明确提示需用 `./see.command` 实时模式。
+  双击静态文件打开时按钮会明确提示需用 `./serve.command` 实时模式。
 - **诚实**：导入状态与「状态」列只认本机真实日志，不采用适配器开发期的 `verified` 静态标记
   （该标记仍保留给 CLI / MCP / JSON 出口）；本机未安装的平台明确标「未验证 / 未导入」；
   窗口内只有部分天数有数据时，结论条直接说明，空窗不摊薄日均。
@@ -54,60 +55,188 @@ Python 3.10+ 标准库即可运行，不装包、不联网、不发 fetch。
 配色规则：绿色系只用于 UI 框架，模型厂商品牌色只用于数据系列且永远附文字标签，
 全表见 [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md)。
 
-## 快速开始
+## 快速开始 · 先选一个版本
 
-### 最快路径 · 仓库内一键入口
+三个版本**共用同一套扫描、归一化与计价代码**，数字口径完全一致，区别只在「怎么看」和「数据何时更新」：
+
+| | **A · 本地服务版** | **B · 静态导出版** | **C · WorkBuddy Skill** |
+|---|---|---|---|
+| 一句话 | 常驻服务，点「刷新」就更新 | 双击导出一个 HTML 文件 | 在对话里说一句话生成看板 |
+| 适合谁 | 每天看、边用边刷新 | 归档 / 发给别人 / 离线查看 | 不想开终端，让 Agent 帮你查 |
+| 入口 | `./serve.command` | `./export.command` | 导入 `tokenboard-skill.tgz` |
+| 产物 | 不产出文件，页面现场生成 | `tokenboard.html`（单文件离线） | Agent 生成的 HTML |
+| 在哪看 | 浏览器 `http://127.0.0.1:8000/` | 双击该 HTML，任意浏览器 | WorkBuddy 内直接打开 |
+| 数据怎么更新 | 页面「刷新」重新扫描本机日志 | 重新运行脚本、覆盖文件 | 重新发起一轮对话 |
+| 「导入」按钮 | 真扫描、真并入 | 提示改用 A 版 | 提示改用 A 版 |
+| 常驻进程 | 是（关窗口即停） | 否（跑完即结束） | 否 |
+| 能分享吗 | 否（仅本机回环地址） | 可以（注意内含明细） | 生成的文件可分享 |
+
+> 一句话挑：自己天天看 → **A**；要一个能发出去的文件 → **B**；想在对话里问 → **C**。
+>
+> 三个版本都**不需要 pip install**：Python 3.10+ 标准库即可，仓库内双击脚本会自动设置好路径。
+
+---
+
+### 版本 A · 本地服务版（可刷新更新数据）
+
+**macOS 双击**：在 Finder 里双击 `serve.command`（首次被系统拦截就右键 → 打开）。
+终端窗口常驻，浏览器自动打开看板。
+
+**终端 / Windows / Linux**：
 
 ```bash
-./see.command                # 一键启动实时看板：起本地服务 + 浏览器自动打开，页面「刷新」即拉最新数据
-./see.command --port 9000    # 自定义端口
-./see.command --since 7d     # 只看近 7 天（服务每次刷新都会按此口径重扫）
-./see.command --theme dark   # 暗夜玻璃主题
-./see.command --static       # 旧模式：生成静态 tokenboard.html 并打开（刷新仅重载快照）
+# 仓库内（macOS / Linux）
+./serve.command                          # 默认 8000 端口，自动开浏览器
+./serve.command --port 9000              # 换端口
+./serve.command --since 7d --theme dark  # 每次刷新都按近 7 天口径重扫
 
-macOS 还可以在 Finder 里**双击 `see.command`**（参数可直接透传；
-首次运行如被拦截：右键 → 打开）。双击后服务常驻，停止请关闭该终端窗口或按 Ctrl+C。
+# 已 pip 安装（任意系统）
+tokenboard serve --open
+tokenboard serve --port 9000 --open
 
-实时模式下，浏览器打开的是 `http://127.0.0.1:8000/`（默认端口），点页面右上角
-「刷新」即重新扫描本机日志，无需退出重启。每次刷新都是**重新统计**：不落盘、没有
-本地累计库，本机数据绝不提交到 GitHub（仓库内 `tokenboard.html` 已被 `.gitignore` 排除）。
+# 克隆源码、不装包
+PYTHONPATH=src python -m tokenboard serve --open                 # macOS / Linux
+$env:PYTHONPATH="src"; python -m tokenboard serve --open         # Windows PowerShell
+```
 
-### 方式一 · pip 安装（CLI / MCP）
+**怎么查看**：浏览器打开 `http://127.0.0.1:8000/`（改了 `--port` 就用新端口）。
+服务只监听 `127.0.0.1`，不对外暴露，日志数据不出本机。
+
+**怎么更新数据**：点页面右上角「**刷新**」——服务端重新扫描本机日志、重新渲染整页，
+不用退出、不用重启。数据源表里的「导入」按钮也只有在这个版本能真正扫描并接入平台。
+
+**怎么停**：关掉那个终端窗口，或在窗口内按 `Ctrl+C`。
+
+**参数**：`--port` / `--host` / `--since` / `--until` / `--platform` / `--theme` / `--title` / `--prices`。
+不带 `--since` 时扫描仍是全历史，页面默认聚焦「1 天」，可随时切近 30 天或「总量」。
+每次请求都是**重新统计**：不落盘、没有本地累计库。导入集合只存本次服务进程内存，重启后需重新点导入。
+
+#### 「导入」按钮到底在做什么（常见误解）
+
+**不需要在对应平台里接入任何 skill 或插件。** TokenBoard 读的是各软件**自己写在本机磁盘上的会话日志**：
+
+| 平台 | 默认读取位置 |
+|---|---|
+| WorkBuddy | `~/.workbuddy/projects` |
+| Claude Code | `~/.claude/projects`、`~/.config/claude/projects` |
+| OpenAI Codex CLI | `~/.codex/sessions`、`~/.codex/history` |
+| Trae / TraeCode | `~/.trae-cn/hub_event_cache` |
+| OpenCode | `~/.config/opencode`、`~/.local/share/opencode` |
+
+这些日志是软件日常运行时自动落盘的，与 TokenBoard 装没装、装没装成 Skill 都无关。
+点「导入」= 让服务端**直接读这个目录**，并把该平台纳入本次服务的统计范围；
+不连平台账号、不需要平台侧配合，也不是在给平台装东西。
+
+所以能不能拿到数据只取决于一件事：**本机装没装这个软件、它有没有产生可读日志**。
+表里「文件 = 0」就是没扫到日志文件，点导入也拿不到数据，页面会明确提示「本机未安装或暂无日志，未导入数据」。
+想让它有数据，只有三条路：
+
+1. 安装并实际使用该平台、产生会话日志，再回来点「导入」；
+2. 日志不在默认位置时，用版本 B 的 `tokenboard scan --path <真实目录>` 直接指定目录；
+3. 像 Trae 那样主要历史落在加密 `database.db` 的，从客户端导出 CSV / JSON，再用 `tokenboard import` 导入（见下文）。
+
+> 「WorkBuddy Skill」（版本 C）是 **TokenBoard 自己**被安装成技能的方式，决定的是「怎么发起查看」，
+> 不是「数据从哪来」——它不会给 Claude Code / Codex 凭空变出日志。
+>
+> 另：`auto_discover=False` 的平台（Claude Code / Codex / Trae）默认不参与自动扫描，
+> 「导入」按钮的真实作用正是**按需把它们接进统计**；本机真有日志时点一下就能并入看板。
+
+---
+
+### 版本 B · 静态导出版（直接运行就导出 HTML）
+
+**macOS 双击**：双击 `export.command` → 扫描本机日志 → 生成 `tokenboard.html` → 自动用浏览器打开，
+跑完进程即结束，不留下常驻服务。
+
+**终端 / Windows / Linux**：
+
+```bash
+# 仓库内（macOS / Linux）
+./export.command                                  # 产物：./tokenboard.html
+./export.command --out ~/Desktop/看板-1108.html   # 自定义产物路径
+./export.command --since 30d --theme dark         # 导出近 30 天 / 深色
+
+# 已 pip 安装（任意系统）
+tokenboard scan --open
+tokenboard scan --since 7d --out week.html
+
+# 克隆源码、不装包
+PYTHONPATH=src python -m tokenboard scan --open                            # macOS / Linux
+$env:PYTHONPATH="src"; python -m tokenboard scan --open --out 看板.html    # Windows PowerShell
+```
+
+**怎么查看**：直接双击生成的 HTML，任意浏览器都能打开。完全自包含——无 CDN、无外部字体、
+不发任何网络请求，断网、拷到 U 盘、发给同事都能看；页内交互（周期切换、指定日、三级下钻、
+模型聚焦、总量）全部保留。
+
+**怎么更新数据**：重新运行一次 `./export.command` 覆盖同一份文件即可。
+页面「刷新」按钮**只重载这份快照**，不会回读本机新日志（按钮会明确提示）；
+数据源表的「导入」按钮同样提示改用 `./serve.command`。
+
+**注意**：HTML 里嵌了请求级明细（时间 / 模型 / 输入输出 / 缓存），分享出去等于分享这部分数据，
+对外分发前请确认（见「隐私与免责」）。仓库内 `tokenboard.html` 已被 `.gitignore` 排除，不会提交到 GitHub。
+
+**参数**：`--out` / `--since` / `--until` / `--platform` / `--path` / `--theme` / `--prices` / `--title`；
+`--format json` 或 `--format table` 可直接输出结构化数据给脚本 / Agent 用。
+
+---
+
+### 版本 C · WorkBuddy Skill（可直接导入）
+
+装成 WorkBuddy 技能后，在对话里说「看看我的 token 用量」就能生成看板，不用记命令。
+
+**方式 1 · 导入打包好的 Skill（推荐，免 clone）**
+
+```bash
+mkdir -p ~/.workbuddy/skills
+
+# 方式 1a：从 GitHub Releases 下载 tokenboard-skill.tgz 到当前目录
+tar -xzf tokenboard-skill.tgz -C ~/.workbuddy/skills
+
+# 方式 1b：不想等 Release，就在仓库里自己打一个（产物在 dist/）
+python scripts/pack_skill.py            # → dist/tokenboard-skill.tgz
+tar -xzf dist/tokenboard-skill.tgz -C ~/.workbuddy/skills
+```
+
+包内条目自带 `tokenboard/` 前缀，**不要加 `--strip-components`**。解压后应为：
+
+```
+~/.workbuddy/skills/tokenboard/
+  ├── SKILL.md
+  ├── scripts/gen_dashboard.py
+  └── src/tokenboard/
+```
+
+**方式 2 · 直接 clone 整个仓库**
+
+```bash
+git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tokenboard
+```
+
+重启 WorkBuddy 会话，说「看看我的 token 用量」「生成本周消耗看板」「对比各平台用量」「token 审计」即可触发。
+
+Skill 版走 `scripts/gen_dashboard.py` 薄壳，与 A / B 版共用 `src/tokenboard`，统计口径完全一致；
+它产出的是**静态 HTML（同版本 B）**，不会启动服务，想点刷新更新仍请用版本 A。
+安装不完整的典型症状是找不到 `src/tokenboard/__init__.py`——只复制 `SKILL.md` 会导致这个错误。
+
+---
+
+### 进阶 · pip 安装与 MCP Server
+
+**pip 安装**（拿到全局 `tokenboard` 命令，A / B 两版都能用命令直接跑）：
 
 ```bash
 pip install git+https://github.com/Rockspace007/TokenBoard.git
 
-tokenboard platforms                   # 看本机有哪些平台日志
-tokenboard scan                        # 生成 ./tokenboard.html（页面默认聚焦 1 天，可切 30 天/总量）
+tokenboard platforms                    # 看本机有哪些平台日志
+tokenboard scan                         # 版本 B：生成 ./tokenboard.html
 tokenboard scan --since 7d --out week.html
-tokenboard scan --format json          # 结构化输出，给脚本 / Agent 用
-tokenboard probe --path ~/some/logs    # 新平台接入前先看字段命中率
-tokenboard serve                        # 本地实时看板：浏览器打开后点「刷新」即重新扫描本机日志
-tokenboard serve --port 9000 --open     # 指定端口并自动打开浏览器
+tokenboard scan --format json           # 结构化输出，给脚本 / Agent 用
+tokenboard serve --open                 # 版本 A：本地实时看板
+tokenboard probe --path ~/some/logs     # 新平台接入前先看字段命中率
 ```
 
-或克隆源码运行（不装包）：
-
-```bash
-git clone https://github.com/Rockspace007/TokenBoard.git && cd TokenBoard
-PYTHONPATH=src python -m tokenboard scan
-```
-
-### 方式二 · WorkBuddy Skill（对话内使用）
-
-```bash
-# 方式 A：Release 下载（免 clone）
-#   从 GitHub Releases 下载 tokenboard-skill.tgz，然后：
-mkdir -p ~/.workbuddy/skills
-tar -xzf tokenboard-skill.tgz -C ~/.workbuddy/skills
-
-# 方式 B：直接 clone（整个仓库即合法 Skill）
-git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tokenboard
-```
-
-重启 WorkBuddy 会话后，说「看看我的 token 用量」「生成本周消耗看板」即可触发。
-
-### 方式三 · MCP Server（给 AI Agent 用）
+**MCP Server**（给其它 AI Agent 用）：
 
 ```json
 {
@@ -124,6 +253,11 @@ git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tok
 暴露 4 个工具：`tokenboard_scan` / `tokenboard_render` / `tokenboard_platforms` / `tokenboard_brands`。
 传输为 stdio JSON-RPC，零依赖手写，不监听端口。协议见 [`docs/CONTRACT.md`](docs/CONTRACT.md)。
 
+---
+
+> **旧入口说明**：`./see.command` 仍然可用，等价于 `./serve.command`；
+> `./see.command --static` 等价于 `./export.command`。仅为兼容已有双击习惯保留，新用法请直接用上面两个脚本。
+
 ## 常用参数
 
 | 参数 | 说明 |
@@ -132,13 +266,15 @@ git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tok
 | `--path` | 自定义日志目录/文件；给定后忽略 `--platform` |
 | `--since 7d` / `--until 2026-11-05` | 时间窗，支持 `YYYY-MM-DD` 与 `Nd`；页面内仍可切换周期 |
 | `--out` | 输出路径，HTML 默认 `tokenboard.html` |
-| `--open` | 写完 HTML 后直接用浏览器打开看板 |
+| `--open` | `scan` 写完 HTML / `serve` 起服务后自动打开浏览器 |
 | `--format html\|json\|table` | 输出形态 |
 | `--theme dark\|light` | light=白底荧光绿（默认）/ dark=暗夜玻璃，页面内可切换 |
 | `--prices <json>` | 覆盖牌价：`{"glm":[2,8,0.4]}` |
 | `--title` / `--window-note` | 自定义标题 / 结论条数据覆盖提示 |
 
-子命令：`scan`（默认）、`import`、`platforms`、`brands`、`probe`、`serve-mcp`。
+子命令：`scan`（默认）、`serve`、`import`、`platforms`、`brands`、`probe`、`serve-mcp`。
+上表参数是 `scan` / `import` 的；`serve` 额外用 `--host` / `--port`（默认 `127.0.0.1:8000`），
+其余支持 `--since` / `--until` / `--platform` / `--theme` / `--title` / `--prices` / `--open`。
 
 ### 导入外部用量文件
 
@@ -173,14 +309,15 @@ Trae 用量页可以用真实浏览器会话抓取，再走上面的 `import`（
 | 任意目录 | `--path <dir\|file>` | — | 通用字段探测 |
 
 > 「未验证」= 本项目没用该平台真实日志跑通过，**不等于不支持**。
-> 只有已验证平台参与无参数自动扫描，避免把配置目录当日志扫。
+> 只有 `auto_discover=True` 的平台参与无参数自动扫描，避免把配置目录当日志扫；
+> 其余平台可在服务版点「导入」按需接入，或用 `--platform` / `--path` 显式指定。
 > 欢迎带脱敏样例提 PR，接入四步法见 [`docs/ADAPTERS.md`](docs/ADAPTERS.md)。
 > 别名：`claudecode` / `claude-code` → `claude_code`；`treacode` / `traecode` → `trae`。
 
 ## 测试与验证
 
 ```bash
-python -m unittest discover -s tests -v        # 81 个用例
+python -m unittest discover -s tests -v        # 92 个用例
 python scripts/smoke_mcp.py                    # MCP 握手端到端
 python -m tokenboard scan --path tests/fixtures/workbuddy.jsonl --format table
 python -m tokenboard probe --path <日志目录>   # 字段命中率
@@ -198,12 +335,12 @@ MCP 握手与 Skill 打包；打 `v*` tag 会自动把 Skill 包挂到 GitHub Re
 | [`docs/AGENT_INTEGRATION.md`](docs/AGENT_INTEGRATION.md) | 给其它 agent 应用的导入接口：CLI JSON / Python import / MCP / 一键脚本 |
 | [`docs/CONTRACT.md`](docs/CONTRACT.md) | UsageRecord、计价口径、Summary JSON、MCP 协议 |
 | [`docs/DESIGN_TOKENS.md`](docs/DESIGN_TOKENS.md) | 双主题令牌与厂商品牌色全表 |
-| [`docs/DESKTOP_PET_FEASIBILITY.md`](docs/DESKTOP_PET_FEASIBILITY.md) | 桌宠可行性调研与路线对比 |
 
 ## 隐私与免责
 
 - 只读取 usage、时间戳、模型名、会话 ID、工作空间目录名；**不读取也不输出消息正文**。
-- 生成的 HTML 完全离线：无 CDN、无 fetch、无外部字体；主题偏好存 localStorage。
+- **静态导出版**生成的 HTML 完全离线：无 CDN、不发起任何网络请求、无外部字体；主题偏好存 localStorage。
+  **本地服务版**页面只与 `127.0.0.1` 通信（「刷新」重载页面、「导入」调 `/api/import`），同样不出本机。
 - **每次统计都是重新统计**：扫描现读日志源头，进程结束不落盘；没有本地累计数据库，
   也不需要清理任何缓存。
 - 本机数据不进 git：`tokenboard.html` / `dist/` / `data/` / `*.db` 均在 `.gitignore`

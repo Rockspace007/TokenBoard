@@ -23,7 +23,8 @@ if not (SRC / "tokenboard" / "__init__.py").is_file():
     sys.stderr.write(
         "[tokenboard] 找不到核心包 src/tokenboard。\n"
         "请把整个仓库 clone 到技能目录，而不是只复制 SKILL.md：\n"
-        "  git clone <repo> ~/.workbuddy/skills/tokenboard\n"
+        "  git clone https://github.com/Rockspace007/TokenBoard.git "
+        "~/.workbuddy/skills/tokenboard\n"
     )
     raise SystemExit(2)
 
