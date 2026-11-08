@@ -92,7 +92,7 @@ claude mcp add tokenboard -- \
 
 ## 方式四 · 包成 Skill / 系统入口
 
-- 本仓库整体就是一个 WorkBuddy Skill（`SKILL.md`），安装方式见 README「版本 C · WorkBuddy Skill」；
+- 本仓库整体就是一个 Skill（`SKILL.md`），安装方式见 README「方式 3 · Skill 版」；
   也可用 `python scripts/pack_skill.py` 打出可直接导入的 `dist/tokenboard-skill.tgz`。
 - 给 macOS/本地用户做入口可照仓库根目录两个脚本的思路：
   `export.command` → `python3 -m tokenboard scan --open`（生成静态 HTML + 浏览器直开），

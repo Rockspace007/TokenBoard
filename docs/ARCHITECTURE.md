@@ -60,7 +60,7 @@ TokenBoard/
 
 | 方案 | 优点 | 缺点 | 适用 |
 |---|---|---|---|
-| **Python 3 标准库（选用）** | 零依赖、与现有 token-dashboard skill 同栈、单文件分发、CSV/JSON/SVG 都好写、MCP stdio 只需 `json`+`sys` | 做原生桌宠窗口要另起技术栈 | 本机数据工具、Skill、CLI |
+| **Python 3 标准库（选用）** | 零依赖、单文件分发、CSV/JSON/SVG 都好写、MCP stdio 只需 `json`+`sys` | 做原生桌宠窗口要另起技术栈 | 本机数据工具、Skill、CLI |
 | Node 22 + TypeScript | 与 DeepSeek Harness / dsh 插件生态同栈，未来做桌宠顺 | 需要 pnpm 依赖与构建链，安装门槛高 | 要做 DSH 插件时 |
 | Python 内核 + Node MCP 壳 | 两头讨好 | 两套代码、两套发布、口径仍可能漂移 | 不推荐 |
 

@@ -78,7 +78,7 @@ def load_prices(path: str | Path | None) -> dict[str, tuple[float, float, float]
 def cost_cny(record: UsageRecord, prices: dict[str, tuple[float, float, float]] | None = None) -> float:
     """单条请求的人民币成本。
 
-    口径与参考实现一致：
+    计价口径：
       * 缓存读命中 → 走 cache_read 价
       * 缓存写入   → 输入价 × 1.25
       * 其余输入   → 输入价

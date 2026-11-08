@@ -103,5 +103,4 @@ git clone https://github.com/Rockspace007/TokenBoard.git ~/.workbuddy/skills/tok
 
 ## 致谢
 
-交互与功能设计部分受 [fuyi-git/token-dashboard](https://github.com/fuyi-git/token-dashboard) 启发；
-代码、平台适配器、计价口径与文档均为本项目独立实现，未复制其源代码。
+交互设计受 [fuyi-git/token-dashboard](https://github.com/fuyi-git/token-dashboard) 启发，代码为本项目独立实现。

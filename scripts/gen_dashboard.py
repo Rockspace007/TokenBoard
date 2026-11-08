@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""WorkBuddy Skill 入口（薄壳）。
+"""Skill 版入口（薄壳）。
 
 与 agent tool 版共享 ``src/tokenboard`` 里的同一套核心代码，不复制、不 fork，
 因此 CLI / MCP / Skill 三个入口的统计口径永远一致。
