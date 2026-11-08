@@ -29,7 +29,7 @@ else
     PYTHON="python"
 fi
 
-PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
 
 # 旧「静态文件」模式：--static 走 scan --open
 if [ "${1:-}" = "--static" ]; then
