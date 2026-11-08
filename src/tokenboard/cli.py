@@ -123,6 +123,17 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("probe", help="探测自定义日志的字段命中率（新平台接入第一步）")
     pr.add_argument("--path", action="append", required=True)
     sub.add_parser("serve-mcp", help="启动 MCP stdio server")
+    sv = sub.add_parser("serve", help="启动本地实时看板：每次刷新都重新扫描本机日志")
+    sv.add_argument("--host", default="127.0.0.1", help="监听地址，默认 127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000, help="监听端口，默认 8000")
+    sv.add_argument("--platform", action="append", help=f"只扫指定平台，可重复；可选 {', '.join(names())}")
+    sv.add_argument("--since", type=parse_date, help="起始时间，YYYY-MM-DD 或 7d")
+    sv.add_argument("--until", type=parse_date, help="结束时间（不含），YYYY-MM-DD")
+    sv.add_argument("--theme", choices=("dark", "light"), default="light")
+    sv.add_argument("--title", default="TokenBoard · 消耗洞察")
+    sv.add_argument("--prices", help="自定义价格表 JSON：{模型前缀: [输入, 输出, 缓存读取]}")
+    sv.add_argument("--open", dest="open_browser", action="store_true",
+                   help="启动后立即在浏览器打开看板")
     return parser
 
 
@@ -339,6 +350,77 @@ def _force_utf8_streams() -> None:
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except (ValueError, OSError):
                 pass
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """本地实时看板：每收到一次 GET 都重新扫描本机日志并渲染，页面「刷新」即拉取最新数据。"""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    prices = load_prices(args.prices)
+    cfg = dict(
+        platforms=args.platform, since=args.since, until=args.until,
+        theme=args.theme, title=args.title, prices=prices,
+    )
+
+    def build_html() -> str:
+        result = scan(
+            platforms=cfg["platforms"], paths=None,
+            since=cfg["since"], until=cfg["until"],
+        )
+        for error in result.errors:
+            print(f"[warn] {error}", file=sys.stderr)
+        summary = summarize(result.records, cfg["prices"])
+        label = window_label(cfg["since"])
+        note = ""
+        expected = window_days(cfg["since"])
+        if expected and summary.active_days and summary.active_days < expected:
+            note = (f"当前窗口为{label}，实际仅 {summary.active_days} 天有数据 · "
+                    "日均按有数据日计算，空窗不计入")
+        return render_html(
+            summary, result.records, result.statuses,
+            theme_name=cfg["theme"], title=cfg["title"],
+            window_note=note, window_label=label,
+            window_days=expected,
+            custom_range=(cfg["since"], cfg["until"])
+            if (cfg["until"] or (cfg["since"] and window_days(cfg["since"]) is None)) else None,
+            prices=cfg["prices"],
+        )
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802  (http.server 约定)
+            try:
+                body = build_html().encode("utf-8")
+            except Exception as exc:  # 单页失败不应拖垮服务
+                self.send_error(500, f"渲染失败：{exc}")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):  # 静默默认访问日志
+            return
+
+    srv = ThreadingHTTPServer((args.host, args.port), _Handler)
+    url = f"http://{args.host}:{args.port}/"
+    print(f"TokenBoard 实时看板已启动：{url}", file=sys.stderr)
+    print("页面「刷新」按钮会重新扫描本机日志拉取最新数据；按 Ctrl+C 停止。", file=sys.stderr)
+    if args.open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("\n已停止。", file=sys.stderr)
+    finally:
+        srv.server_close()
+    return 0
+
+
+COMMANDS["serve"] = cmd_serve
 
 
 def main(argv: Sequence[str] | None = None) -> int:

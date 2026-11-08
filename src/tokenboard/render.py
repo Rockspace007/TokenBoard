@@ -62,17 +62,19 @@ padding:5px 8px;font-size:10.5px;font-family:var(--mono)}
    不再把 color-scheme 交给系统偏好决定，避免浅色主题下日期文字被 UA 画成浅色 */
 body[data-theme=light] .drange input{color-scheme:light}
 body[data-theme=dark] .drange input{color-scheme:dark}
-/* 「指定日」控件：未激活时淡显，激活后整组高亮，避免误以为当前已在单日模式 */
-.dpick{display:flex;align-items:center;gap:1px;border:1px solid var(--bd);border-radius:9px;
-background:var(--surface);padding:2px;opacity:.7;transition:opacity .15s,border-color .15s}
-.dpick.on{opacity:1;border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
-.dpick input{border:none;background:transparent;color:var(--t1);-webkit-text-fill-color:var(--t1);
-font-size:10.5px;font-family:var(--mono);padding:4px 4px 4px 6px;min-width:112px}
-.dpick button.mini{border:none;background:transparent;font-size:15px;line-height:1;
-padding:2px 8px;cursor:pointer;font-family:var(--sans)}
-.dpick button.mini:hover{background:var(--brandsoft);border-radius:6px;color:var(--brandb)}
-body[data-theme=light] .dpick input{color-scheme:light}
-body[data-theme=dark] .dpick input{color-scheme:dark}
+/* 「指定日」融合日期选择：整颗 pill 即触发原生日历，选定后显示该日期并高亮。
+   宽度与参考日期字段一致，确保周期 / 单日切换时视觉稳定。 */
+.dpill{position:relative;display:inline-flex;align-items:center;justify-content:center;
+height:30px;min-width:140px;padding:0 12px;border:1px solid var(--bd);border-radius:9px;
+background:var(--surface);color:var(--t1);font-size:11px;font-family:var(--mono);
+cursor:pointer;opacity:.72;white-space:nowrap;-webkit-user-select:none;user-select:none;
+transition:opacity .15s,border-color .15s,color .15s}
+.dpill.on{opacity:1;border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand);color:var(--brandb)}
+.dpill #dayPickTxt{position:relative;z-index:2;pointer-events:none}
+.dpill input{position:absolute;inset:0;z-index:1;width:100%;height:100%;border:none;
+background:transparent;opacity:0;cursor:pointer;font-family:var(--mono)}
+body[data-theme=light] .dpill input{color-scheme:light}
+body[data-theme=dark] .dpill input{color-scheme:dark}
 /* ---- 结论条 ---- */
 .hero{position:relative;background:var(--surface);border:1px solid var(--bds);border-radius:20px;
 padding:20px 26px 18px;margin-bottom:16px;overflow:hidden}
@@ -260,14 +262,14 @@ _TEMPLATE = r"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <div class="titlerow"><div><h1>__TITLE__</h1><div class="sub">__SUBTITLE__</div></div>
 <div class="controls">
 <div class="twin" id="periodPills">__PERIODS__</div>
+<label class="dpill" id="dayPick" title="点击选择具体某一天；选定后整颗 pill 即显示该日期">
+<span id="dayPickTxt">指定日</span>
+<input type="date" id="daySel" aria-label="选择具体日期" value="__DAYVAL__" min="__DAYMIN__" max="__DAYMAX__"></label>
 <div class="drange"><input type="date" id="dStart" aria-label="起始日期">至
 <input type="date" id="dEnd" aria-label="结束日期"></div>
-<div class="dpick" id="dayPick" title="按日历选择具体某一天；‹ › 可逐日切换">
-<button type="button" class="mini" id="dayPrev" aria-label="前一天" title="前一天">‹</button>
-<input type="date" id="daySel" aria-label="选择具体日期" value="__DAYVAL__" min="__DAYMIN__" max="__DAYMAX__">
-<button type="button" class="mini" id="dayNext" aria-label="后一天" title="后一天">›</button></div>
 <select class="mini" id="platSel" aria-label="平台筛选">__PLATOPTS__</select>
 <button class="chip" id="themeBtn">深色</button>
+<button class="chip" id="refreshBtn" title="重新扫描本机日志并刷新数据（需通过 tokenboard serve 打开；双击文件时仅重载当前快照）">刷新</button>
 <button class="chip" onclick="window.print()">导出 PDF</button></div></div>
 __HERO__
 <div class="kpis" id="kpis">__KPIS__</div>
@@ -350,6 +352,11 @@ var hourMode='win';  // 0—24 时分布口径：win=窗口内跨日累加 / tod
 /* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
    与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
 var dayMode=false,dayKey='';
+var allMode=false;   // 总量模式：跨全部日期累计，不受近 N 天窗口限制
+/* 嵌入数据的最早一条记录时间戳（分钟）；总量模式以它为下界，覆盖全部历史。 */
+var dataMinMin=Infinity;
+for(var _si=0;_si<SESS.length;_si++){var _rs=SESS[_si].r;if(_rs&&_rs.length)dataMinMin=Math.min(dataMinMin,_rs[0][0]);}
+if(!isFinite(dataMinMin))dataMinMin=0;
 var LASTA=null;
 
 /* ---------------- 基础工具 ---------------- */
@@ -398,7 +405,8 @@ function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=
     o.push(Math.round(c1+(c2-c1)*t));}
   return '#'+o.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');}
 function winLabel(){return dayMode?('指定日 '+dayKey)
-  :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口');}
+  :(allMode?'全部日期'
+  :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口'));}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
 /* 「聚焦日」= 指定日模式下所选的那天，否则为生成当日。
@@ -408,8 +416,10 @@ function dayStartMin(k){return Math.floor(new Date(k+'T00:00:00').getTime()/6000
 /* 近 N 天 = 含生成当日在内的 N 个自然日：[当日-(N-1)天 00:00, ∞)。
    右端保持开放，避免把当天晚些时候的请求排除掉。自定义窗口仍走 cLo/cHi。
    指定日模式优先级最高：[所选日 00:00, 次日 00:00)。 */
-function cutLo(){return dayMode?dayStartMin(dayKey):(win?dayAnchor-win*1440:(cLo||0));}
-function cutHi(){return dayMode?dayStartMin(dayKey)+1440:((!win&&cHi)?cHi:Infinity);}
+function cutLo(){return dayMode?dayStartMin(dayKey)
+  :(allMode?dataMinMin:(win?dayAnchor-win*1440:(cLo||0)));}
+function cutHi(){return dayMode?dayStartMin(dayKey)+1440
+  :(allMode?Infinity:((!win&&cHi)?cHi:Infinity));}
 function inWin(tsMin){return tsMin>=cutLo()&&tsMin<cutHi();}
 function orderByTokens(A){return models.map(function(m,i){return i;})
   .filter(function(i){return A.mt[i]>0;})
@@ -1065,8 +1075,9 @@ function renderAll(){
   renderPanel(A);renderSessionTop(A);
   [].forEach.call(document.querySelectorAll('.ppill'),function(b){
     var w=+b.dataset.w;
-    /* 指定日模式只高亮「指定日」；自定义窗口则高亮它自己的 data-w=-1 标签 */
-    b.classList.toggle('on',dayMode?w===0:((w>0&&win===w)||(w===-1&&win===0)));});
+    /* 指定日 / 总量模式期间不点亮常规周期预设；自定义窗口高亮它自己的 data-w=-1 标签 */
+    b.classList.toggle('on',!dayMode&&(
+      (w>0&&win===w)||(w===-1&&win===0)||(w===-2&&allMode)));});
   var pick=$('#dayPick');if(pick)pick.classList.toggle('on',dayMode);
 }
 window.addEventListener('resize',fitModelNameCol);
@@ -1089,8 +1100,10 @@ document.addEventListener('click',function(ev){
     return;}
   if((n=t.closest('.ppill'))){var wv=+n.dataset.w;
     if(wv===0){enterDayMode();return;}   // 「指定日」开关，不是周期天数
+    if(wv===-2){allMode=true;win=0;cLo=0;cHi=0;exitDayMode();selModel=null;
+      $('#dStart').value='';$('#dEnd').value='';renderAll();return;}
     if(wv<0)return;
-    exitDayMode();
+    allMode=false;exitDayMode();
     win=wv;cLo=0;cHi=0;selModel=null;
     $('#dStart').value='';$('#dEnd').value='';renderAll();return;}
   if((n=t.closest('[data-m]'))){wsMode=n.dataset.m;
@@ -1124,7 +1137,7 @@ $('#platSel').addEventListener('change',function(ev){
   selModel=null;state={ws:null,ses:null};renderAll();});
 function applyCustom(){
   var sv=$('#dStart').value,ev=$('#dEnd').value;if(!sv&&!ev)return;
-  exitDayMode();
+  exitDayMode();allMode=false;
   cLo=sv?Math.floor(new Date(sv+'T00:00:00').getTime()/60000):0;
   cHi=ev?Math.floor((new Date(ev+'T00:00:00').getTime()+86400e3)/60000):0;
   win=0;selModel=null;renderAll();}
@@ -1132,7 +1145,7 @@ $('#dStart').addEventListener('change',applyCustom);
 $('#dEnd').addEventListener('change',applyCustom);
 
 /* ---------------- 指定日模式 ---------------- */
-function exitDayMode(){dayMode=false;}
+function exitDayMode(){dayMode=false;var t=$('#dayPickTxt');if(t)t.textContent='指定日';}
 function enterDayMode(key){
   var sel=$('#daySel');
   var v=key||(sel&&sel.value)||focusDayKey();
@@ -1140,36 +1153,32 @@ function enterDayMode(key){
   if(sel&&sel.min&&v<sel.min)v=sel.min;
   if(sel&&sel.max&&v>sel.max)v=sel.max;
   if(!v)return;
-  dayKey=v;dayMode=true;
+  dayKey=v;dayMode=true;allMode=false;
   if(sel)sel.value=v;
+  var t=$('#dayPickTxt');if(t)t.textContent=v;   // pill 直接显示所选日期
   $('#dStart').value='';$('#dEnd').value='';
   selModel=null;state={ws:null,ses:null};
   renderAll();
 }
-function stepDay(delta){
-  var sel=$('#daySel');
-  /* 始终以日历框「当前显示」的日期为基准，避免用户手动改值后
-     内部 dayKey 与可见值不一致时翻页跳错 */
-  var base=(sel&&sel.value)||(dayMode?dayKey:focusDayKey());
-  var d=new Date(base+'T00:00:00');
-  d=new Date(d.getTime()+delta*86400e3);
-  var k=fm(d);
-  if(sel&&((sel.min&&k<sel.min)||(sel.max&&k>sel.max)))return;
-  enterDayMode(k);
-}
 var daySel=$('#daySel');
 if(daySel)daySel.addEventListener('change',function(ev){
   if(ev.target.value)enterDayMode(ev.target.value);});
-var dayPrev=$('#dayPrev');
-if(dayPrev)dayPrev.addEventListener('click',function(){stepDay(-1);});
-var dayNext=$('#dayNext');
-if(dayNext)dayNext.addEventListener('click',function(){stepDay(1);});
 var themeBtn=document.getElementById('themeBtn');
 themeBtn.textContent=DARK?'浅色':'深色';
 themeBtn.onclick=function(){DARK=!DARK;HEAT=DARK?HEAT_D:HEAT_L;
   document.body.dataset.theme=DARK?'dark':'light';
   try{localStorage.setItem('tb-theme',DARK?'dark':'light');}catch(e){}
   themeBtn.textContent=DARK?'浅色':'深色';renderAll();};
+/* 刷新：在 tokenboard serve 模式下会重新扫描本机日志拉取最新数据；
+   直接双击打开静态文件时则仅重载当前嵌入的快照。 */
+var refreshBtn=document.getElementById('refreshBtn');
+if(refreshBtn)refreshBtn.onclick=function(){
+  var t0=Date.now(),old=refreshBtn.textContent;
+  refreshBtn.disabled=true;refreshBtn.textContent='刷新中…';
+  // 让「刷新中」先绘制出来，再 reload
+  setTimeout(function(){location.reload();},30);
+  setTimeout(function(){refreshBtn.disabled=false;refreshBtn.textContent=old;},2000);
+};
 renderAll();
 })();
 """
@@ -1757,11 +1766,12 @@ def render_html(
     for lbl, wv in known.items():
         on = ' class="ppill on"' if lbl == window_label else ' class="ppill"'
         periods.append(f'<button{on} data-w="{wv}">{lbl}</button>')
-    # data-w=0 不是周期天数，是「指定日」模式的开关
-    periods.append('<button class="ppill" data-w="0" id="dayPill" '
-                   'title="按日历选择具体某一天">指定日</button>')
+    # 「总量」= 跨全部日期的累计消耗（不受近 N 天窗口限制）；data-w=-2 为全量模式哨兵。
+    periods.append('<button class="ppill" data-w="-2" title="显示全部日期的全部 Token 消耗">总量</button>')
     if window_label not in known:
         periods.append(f'<button class="ppill on" data-w="-1">{e(window_label)}</button>')
+    # 「指定日」不再作为预设按钮塞进周期组，而是单独成一颗日期 pill（见模板 #dayPick），
+    # 点击即弹出原生日历，选定后整颗 pill 显示该日期并高亮。
     period_pills = "".join(periods)
 
     # 单日日历的可选范围 = 嵌入页面的记录真实覆盖日期（records 已按 --since 过滤）。
