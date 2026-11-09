@@ -1,0 +1,74 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.6.0] - 2026-11-09
+
+本次核心变化:引入**双口径模型**。看板从此明确区分两种时间口径——
+
+- **窗口口径**:顶部 KPI 行,跟随周期胶囊(`1 天` / `2 天` / `3 天` / `近 7 天` / `近 30 天` / `总量`)重算。
+- **总量口径**:下方明细卡(工作空间榜、会话榜、分布热力图、日活分布、单次请求大小分布、0—24 时「累计」)统一按全部扫描数据展示,**不受周期切换影响**,便于跨周期稳定对比。
+
+### Added
+
+- 周期胶囊新增「2 天」选项。
+- 工作空间 & 会话消耗活跃分布卡:卡头新增**平台链**,展示本卡涉及的全部平台。
+- 工作空间榜 / 会话榜每行新增**平台列**,下沉到每行名称之后(占比 / 轮次列不显示平台)。
+- 分布热力图支持**三档粒度**:`日 · 当日 24 时` / `周 · 当周 7 天` / `月 · 当月天数`,可切换。
+
+### Changed
+
+- 合并原「会话消耗 · 全部会话」独立卡到「工作空间 & 会话消耗活跃分布」。
+- 明细卡全面切换为**总量口径**(分布热力图、日活分布、单次请求大小分布、工作空间 / 会话数量与占比)。
+- 日活分布:`日` 档只显示当日一行;`周` 档 = 当周自然周(周一至周日);`月` 档 = 当月天数。
+- 0—24 时分布「累计」改为按全量逐时聚合、按总量 Token 排序;「仅当日」跟随全局时间锚点(自定义区间 / 指定日 / 当日)。
+- 工作空间 / 会话榜的 TOP 调节、占比与轮次分母均按总量口径。
+- 指定日日期 pill 收窄(略宽于周期 pill),完整显示所选日期。
+- 旧称「窗口累计」统一更名为「累计」。
+
+### Fixed
+
+- 修色阶越界:高值格超出色阶档位导致透明不可见(曾被误认为"不足 24 格")的 bug;空格子改用 `--surface2` 背景色。
+- 加固一键启动脚本(`serve.command` / `export.command`):修复因 venv 路径、Python 版本等环境差异导致的双击静默失败。
+- 工作空间分布 / 日活分布 / 0—24 时「仅当日」现在正确跟随全局时间选择(自定义区间、指定日、当日)。
+
+### Removed
+
+- 移除独立的「会话消耗 · 全部会话」卡片(功能并入工作空间分布卡)。
+- 清理在 Trae 等其他 agent 平台误装的 skill 副本。
+
+## [0.5.0] - 2026-10 (approx)
+
+- 模型 TOP 切换能力。
+- 精简一键入口。
+
+## [0.4.2] - 2026-10 (approx)
+
+- 按标准仓库结构重写 README。
+
+## [0.4.1] - 2026-10 (approx)
+
+- 维护性发布。
+
+## [0.4.0] - 2026-09 (approx)
+
+- 开源上架发布准备(gitignore 加固、README 同步、版本号 bump)。
+
+## [0.3.0] - 2026-09 (approx)
+
+- 页内交互引擎:可点击看板,对齐参考实现的下钻交互。
+
+## [0.2.0] - 2026-08 (approx)
+
+- 对齐定稿设计稿重做看板。
+
+[0.6.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/Rockspace007/TokenBoard/releases/tag/v0.2.0
