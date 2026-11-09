@@ -114,6 +114,30 @@ class RenderImportInjectionTest(unittest.TestCase):
         # data_js 用紧凑 JSON（无空格），用正则兼容两种序列化格式
         self.assertRegex(html, r'"win":\s*1\b')
 
+    def test_period_pills_include_two_days_in_order(self):
+        """周期组顺序固定为 1 / 2 / 3 天、近 7 天、近 30 天、总量。"""
+        html = render_html(summarize([]), [], STATUS)
+        group = html.split('id="periodPills">', 1)[1].split("</div>", 1)[0]
+        self.assertIn('data-w="2">2 天</button>', group)
+        self.assertLess(group.index('data-w="1">1 天'), group.index('data-w="2">2 天'))
+        self.assertLess(group.index('data-w="2">2 天'), group.index('data-w="3">3 天'))
+        self.assertLess(group.index('data-w="3">3 天'), group.index('data-w="7">近 7 天'))
+        self.assertIn('data-w="-2"', group)
+
+    def test_window_label_alias_matches_preset(self):
+        """CLI 的「近 3 天」别名应点亮预设「3 天」，不得再生成重复的动态 pill。"""
+        html = render_html(summarize([]), [], STATUS,
+                           window_label="近 3 天", window_days=3)
+        self.assertIn('class="ppill on" data-w="3">3 天', html)
+        self.assertNotIn('data-w="-1"', html)
+
+    def test_day_pick_is_compact_but_legible(self):
+        """指定日 pill 收窄，但仍需完整容纳 YYYY-MM-DD（不裁切、不换行）。"""
+        html = render_html(summarize([]), [], STATUS)
+        self.assertIn("min-width:108px", html)
+        self.assertNotIn("min-width:140px", html)
+        self.assertIn("white-space:nowrap", html)
+
     def test_default_page_pending_for_zero_file_platform(self):
         """真实页面（无 imported）里 0 文件平台必须保持未导入/未验证。"""
         html = render_html(summarize([]), [], STATUS)

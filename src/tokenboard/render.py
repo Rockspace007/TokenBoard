@@ -74,9 +74,9 @@ padding:5px 8px;font-size:10.5px;font-family:var(--mono)}
 body[data-theme=light] .drange input{color-scheme:light}
 body[data-theme=dark] .drange input{color-scheme:dark}
 /* 「指定日」融合日期选择：整颗 pill 即触发原生日历，选定后显示该日期并高亮。
-   宽度与参考日期字段一致，确保周期 / 单日切换时视觉稳定。 */
+   宽度只比最宽的周期按钮略大，刚好完整容纳 YYYY-MM-DD（等宽字体），不留大片空白。 */
 .dpill{position:relative;display:inline-flex;align-items:center;justify-content:center;
-height:30px;min-width:140px;padding:0 12px;border:1px solid var(--bd);border-radius:9px;
+height:30px;min-width:108px;padding:0 8px;border:1px solid var(--bd);border-radius:9px;
 background:var(--surface);color:var(--t1);font-size:11px;font-family:var(--mono);
 cursor:pointer;opacity:.72;white-space:nowrap;-webkit-user-select:none;user-select:none;
 transition:opacity .15s,border-color .15s,color .15s}
@@ -435,7 +435,7 @@ function blend(hex,other,t){var a=hex.replace('#',''),b=other.replace('#',''),o=
   return '#'+o.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');}
 function winLabel(){return dayMode?('指定日 '+dayKey)
   :(allMode?'全部日期'
-  :(win?(win===1?'1 天':'近 '+win+' 天'):'自定义窗口'));}
+  :(win?(win<=3?win+' 天':'近 '+win+' 天'):'自定义窗口'));}
 function pal(mi){return PAL[mi]||'#5FC2A0';}
 function plabel(pi){return PLAT[pi]||'';}
 /* 「聚焦日」= 三档明细视图与 0—24 时「仅当日」的锚点日：
@@ -1934,13 +1934,18 @@ def render_html(
     ])
 
     periods = []
-    known = {"1 天": 1, "3 天": 3, "近 7 天": 7, "近 30 天": 30}
+    known = {"1 天": 1, "2 天": 2, "3 天": 3, "近 7 天": 7, "近 30 天": 30}
+    # CLI / serve 生成的 window_label 可能是「近 2 天」「近 3 天」这类别名，
+    # 统一按天数折算回预设标签，避免同一窗口既点亮预设又多出一颗重复标签。
+    active_label = next(
+        (lbl for lbl, wv in known.items() if wv == window_days), window_label
+    )
     for lbl, wv in known.items():
-        on = ' class="ppill on"' if lbl == window_label else ' class="ppill"'
+        on = ' class="ppill on"' if lbl == active_label else ' class="ppill"'
         periods.append(f'<button{on} data-w="{wv}">{lbl}</button>')
     # 「总量」= 跨全部日期的累计消耗（不受近 N 天窗口限制）；data-w=-2 为全量模式哨兵。
     periods.append('<button class="ppill" data-w="-2" title="显示全部日期的全部 Token 消耗">总量</button>')
-    if window_label not in known:
+    if active_label not in known:
         periods.append(f'<button class="ppill on" data-w="-1">{e(window_label)}</button>')
     # 「指定日」不再作为预设按钮塞进周期组，而是单独成一颗日期 pill（见模板 #dayPick），
     # 点击即弹出原生日历，选定后整颗 pill 显示该日期并高亮。
