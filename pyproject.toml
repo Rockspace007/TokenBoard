@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tokenboard"
-version = "0.6.1"
+version = "0.6.2"
 description = "多平台 LLM Token 消耗看板：绿色系主题 + 模型厂商品牌色，零第三方依赖、单文件离线 HTML"
 readme = "README.md"
 requires-python = ">=3.10"

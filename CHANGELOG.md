@@ -5,22 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-11-10
+
+0.6.1 发布前对「模型与品牌色」区两卡片的交互与排版打磨。
+
+### Changed
+
+- 每日用量趋势的跨度切换由分段按钮改为**下拉框**(`<select>`,与 TOP / 口径控件一致),置于卡片标题行右侧。
+- 按模型消耗行改为**轨道弹性延长 + 信息贴右**:轨道列 `1fr` 吃满模型名与数值列之间的中段空白(数据条明显变长),数值列固定 200px、平台列固定 96px 且右对齐,后段信息整体贴卡片右边缘,各行严格对齐、右侧不留白。静态降级首屏同步补齐第 4 列占位。
+- 每日用量趋势图例排版:两行模型标注**行距收紧**(`row-gap` 14px → 5px,同行列距不变),整块**下沉**离标题更松(新增 `margin-top:12px`),与下方柱状图留足间距(`margin-bottom` 8px → 10px,不遮挡)。样式作用域限定 `#dailyChart`,不影响 0—24 时分布的通用图例。
+
+### Fixed
+
+- 每日用量趋势选「本月」仍只显示 7 天:原实现按「有数据日」过滤,当本月仅部分日期有记录时柱数偏少。改为生成**连续日轴**(当月 1 日 → 今日),无数据日补空柱,严格对应当月天数。
+
 ## [0.6.1] - 2026-11-09
 
 ### Added
 
 - 每日用量趋势图改用**总量口径**(数据不再随顶部周期窗口变化),并新增「1日 / 3日 / 7日 / 本月」跨度切换(默认 7 日)。
 - 按模型消耗行末新增**「平台」列**,标识每个模型在哪些平台被使用。
-
-### Changed
-
-- 每日用量趋势的跨度切换由分段按钮改为**下拉框**(`<select>`,与 TOP / 口径控件一致),置于卡片标题行右侧。
-- 每日用量趋势图例排版:两行模型标注**行距收紧**(`row-gap` 14px → 5px,同行列距不变),整块**下沉**离标题更松(新增 `margin-top:12px`),与下方柱状图留足间距(`margin-bottom` 8px → 10px,不遮挡)。样式作用域限定 `#dailyChart`,不影响 0—24 时分布的通用图例。
-- 按模型消耗行改为**轨道弹性延长 + 信息贴右**:轨道列 `1fr` 吃满模型名与数值列之间的中段空白(数据条明显变长),数值列固定 200px、平台列固定 96px 且右对齐,后段信息整体贴卡片右边缘,各行严格对齐、右侧不留白。静态降级首屏同步补齐第 4 列占位。
-
-### Fixed
-
-- 每日用量趋势选「本月」仍只显示 7 天:原实现按「有数据日」过滤,当本月仅部分日期有记录时柱数偏少。改为生成**连续日轴**(当月 1 日 → 今日),无数据日补空柱,严格对应当月天数。
 
 ## [0.6.0] - 2026-11-09
 
@@ -82,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 对齐定稿设计稿重做看板。
 
+[0.6.2]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.2...v0.5.0
