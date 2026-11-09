@@ -9,7 +9,7 @@ Python 3.10+ 标准库即可运行，不装包、不联网；既可以在本地�
 
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
-![tests](https://img.shields.io/badge/tests-103%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-105%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 **目录**：[主要功能](#主要功能) · [安装](#安装) · [快速开始](#快速开始) · [常用命令与参数](#常用命令与参数) · [支持的平台](#支持的平台) · [文档](#文档) · [开发](#开发) · [隐私与免责](#隐私与免责) · [License](#license)
@@ -249,7 +249,7 @@ tokenboard import usage.csv --platform trae --format table
 ## 开发
 
 ```bash
-python -m unittest discover -s tests -v        # 103 个用例
+python -m unittest discover -s tests -v        # 105 个用例
 python scripts/smoke_mcp.py                    # MCP 握手端到端
 python scripts/pack_skill.py                   # 打包 Skill 版 → dist/tokenboard-skill.tgz
 ```

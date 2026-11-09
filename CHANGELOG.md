@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-11-09
+
+### Added
+
+- 每日用量趋势图改用**总量口径**(数据不再随顶部周期窗口变化),并新增「1日 / 3日 / 7日 / 本月」跨度切换(默认 7 日)。
+- 按模型消耗行末新增**「平台」列**,标识每个模型在哪些平台被使用。
+
 ## [0.6.0] - 2026-11-09
 
 本次核心变化:引入**双口径模型**。看板从此明确区分两种时间口径——
@@ -18,8 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 工作空间 & 会话消耗活跃分布卡:卡头新增**平台链**,展示本卡涉及的全部平台。
 - 工作空间榜 / 会话榜每行新增**平台列**,下沉到每行名称之后(占比 / 轮次列不显示平台)。
 - 分布热力图支持**三档粒度**:`日 · 当日 24 时` / `周 · 当周 7 天` / `月 · 当月天数`,可切换。
-- 每日用量趋势图改用**总量口径**(数据不再随顶部周期窗口变化),并新增「1日 / 3日 / 7日 / 本月」跨度切换(默认 7 日)。
-- 按模型消耗行末新增**「平台」列**,标识每个模型在哪些平台被使用。
 
 ### Changed
 
@@ -67,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 对齐定稿设计稿重做看板。
 
+[0.6.1]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Rockspace007/TokenBoard/compare/v0.4.1...v0.4.2
