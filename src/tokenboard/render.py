@@ -123,8 +123,8 @@ padding:18px 22px;margin-bottom:16px}
 /* ---- 模型条 ---- */
 /* 名字列宽度由 JS 测量所有模型名（含厂商 chip）后写入 --nmw，保证完整显示；
    上限 cap 在 max(200px, 42vw)，极长名超出上限仍走省略号，条形列永远保底可见 */
-.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(160px,2fr) minmax(190px,300px) minmax(110px,170px);
-gap:12px;align-items:center;padding:9px 0;font-size:11.5px}
+.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(72px,104px) minmax(150px,1fr) minmax(96px,150px);
+gap:10px;align-items:center;padding:9px 0;font-size:11.5px}
 .mrow .nm{font-family:var(--mono);font-weight:600;color:var(--t1);overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .mrow .nm.sans{font-family:var(--sans);font-weight:500;cursor:default}
@@ -315,12 +315,11 @@ __HERO__
 <div id="modelRows">__MODELS__</div></div>
 <div class="card"><div class="cardhead">
 <h3>每日用量趋势</h3><span class="hdnote" id="dailyNote">按模型堆叠 · 点击图例聚焦 · 单位 Token · 总量口径</span>
-<div class="hdtools" id="dailySpan">
-<button type="button" class="mini" data-span="1">1日</button>
-<button type="button" class="mini" data-span="3">3日</button>
-<button type="button" class="mini on" data-span="7">7日</button>
-<button type="button" class="mini" data-span="month">本月</button>
-</div></div>
+<div class="hdtools">
+<select class="mini" id="dailySpan" aria-label="每日趋势跨度">
+<option value="1">1日</option><option value="3">3日</option>
+<option value="7" selected>7日</option><option value="month">本月</option>
+</select></div></div>
 <div id="dailyChart">__DAILY__</div></div>
 </div>
 <div class="sec"><b>02</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
@@ -628,19 +627,20 @@ function modelRows(A){
 /* ---------------- 每日堆叠柱 ---------------- */
 /* 数据按总量口径（A.dmAll，全部扫描数据，不受顶部周期窗口影响）；
    dailySpan 仅决定「画哪一段」：1 / 3 / 7 个自然日 或 当月。 */
+/* 生成连续日轴：1/3/7 日 = 含今日往前 N 天；本月 = 当月 1 日 → 今日。
+   即便某些天无数据也补齐空柱，保证「N 日 / 本月」严格对应天数（连续刻度）。 */
 function dailyDays(A){
-  var all=Object.keys(A.dmAll||{}).sort();
-  if(!all.length)return [];
-  var t=todayDate(),res;
+  var t=todayDate(),endK=fm(t),loK;
   if(dailySpan==='month'){
-    var lo=new Date(t.getFullYear(),t.getMonth(),1).getTime()/60000;
-    res=all.filter(function(dk){return dayStartMin(dk)>=lo;});
+    loK=fm(new Date(t.getFullYear(),t.getMonth(),1));      // 当月 1 日
   }else{
-    var n=+dailySpan,base0=new Date(t.getTime()-(n-1)*86400000);
-    var lo=dayStartMin(fm(base0));
-    res=all.filter(function(dk){return dayStartMin(dk)>=lo;});
+    var n=+dailySpan||7;
+    loK=fm(new Date(t.getTime()-(n-1)*86400000));           // 含今日往前 N 天
   }
-  return res.length?res:all;   // 该跨度无数据则回退到全量，避免空白
+  var days=[],cur=new Date(loK+'T00:00:00'),end=new Date(endK+'T00:00:00');
+  if(cur>end)return [];
+  while(cur<=end){days.push(fm(cur));cur.setDate(cur.getDate()+1);}
+  return days;
 }
 function renderDaily(A){
   var days=dailyDays(A);
@@ -1215,10 +1215,6 @@ document.addEventListener('click',function(ev){
     selModel=(selModel===mi?null:mi);renderAll();return;}
   if((n=t.closest('[data-hv]'))){heatView=n.dataset.hv;
     if(LASTA)renderHeat(LASTA);return;}
-  if((n=t.closest('[data-span]'))){dailySpan=n.dataset.span;
-    [].forEach.call(document.querySelectorAll('#dailySpan [data-span]'),function(b){
-      b.classList.toggle('on',b===n);});
-    if(LASTA)renderDaily(LASTA);return;}
 });
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});
@@ -1232,6 +1228,9 @@ if(hourModeSel)hourModeSel.addEventListener('change',function(ev){
 var distTopSel=$('#distTop');
 if(distTopSel)distTopSel.addEventListener('change',function(ev){
   distTop=+ev.target.value;if(LASTA)renderDist(LASTA);});
+var dailySpanSel=$('#dailySpan');
+if(dailySpanSel)dailySpanSel.addEventListener('change',function(ev){
+  dailySpan=ev.target.value;if(LASTA)renderDaily(LASTA);});
 var wsTopSel=$('#wsTop');
 if(wsTopSel)wsTopSel.addEventListener('change',function(ev){
   wsTop=+ev.target.value;if(LASTA)renderPanel(LASTA);});

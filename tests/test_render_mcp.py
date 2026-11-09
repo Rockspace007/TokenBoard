@@ -148,18 +148,20 @@ class TestRender(unittest.TestCase):
             self.assertNotIn(dead, html)
 
     def test_daily_trend_total_caliber_and_span_toggle(self):
-        """每日用量趋势按总量口径（A.dmAll）渲染，并带 1日/3日/7日/本月 跨度切换。"""
+        """每日用量趋势按总量口径（A.dmAll）渲染，并带 1日/3日/7日/本月 跨度下拉。"""
         html = render_html(self.summary, self.records, self.statuses)
-        # 4 个跨度切换按钮齐全，默认高亮 7日
-        for btn in ('data-span="1"', 'data-span="3"', 'data-span="month"'):
-            self.assertIn(btn, html)
-        self.assertIn('class="mini on" data-span="7"', html)
+        # 跨度控件：原按钮组改为 <select id="dailySpan">，默认选中 7日
         self.assertIn('id="dailySpan"', html)
+        for opt in ('value="1">1日', 'value="3">3日',
+                    'value="7" selected>7日', 'value="month">本月'):
+            self.assertIn(opt, html)
         self.assertIn("var dailySpan='7';", html)
         # 数据源切到总量口径：新增全量逐日×模型桶，渲染读取 A.dmAll
         self.assertIn("A.dmAll[dkA][r[1]]", html)
         self.assertIn("function dailyDays(A)", html)
         self.assertIn("orderByTokensAll(A)", html)   # 每日柱模型排序按总量
+        # 本月/跨度改为连续日轴（当月1日→今日），不再依赖有数据日做过滤
+        self.assertIn("endK=fm(t),loK;", html)
         self.assertIn("每日用量趋势", html)
         self.assertIn("总量口径", html)
 
@@ -170,8 +172,8 @@ class TestRender(unittest.TestCase):
         self.assertIn(".pchip{", html)               # 平台 chip 样式
         self.assertIn("A.modelPlats[mi]", html)       # 每模型平台集合聚合
         self.assertIn("plabel(pi)", html)            # 渲染平台名
-        # 网格新增第 4 列（平台），宽度落在 minmax(110px,170px)
-        self.assertIn("minmax(110px,170px)", html)
+        # 网格新增第 4 列（平台），进度条轨道列已收窄为固定窄宽 minmax(72px,104px)
+        self.assertIn("minmax(72px,104px)", html)
 
     def test_heat_level_follows_palette_length(self):
         """色阶档位不得超出色板长度：越界会取到 undefined，导致有数据的格子变透明。"""
