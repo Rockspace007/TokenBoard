@@ -123,7 +123,7 @@ padding:18px 22px;margin-bottom:16px}
 /* ---- 模型条 ---- */
 /* 名字列宽度由 JS 测量所有模型名（含厂商 chip）后写入 --nmw，保证完整显示；
    上限 cap 在 max(200px, 42vw)，极长名超出上限仍走省略号，条形列永远保底可见 */
-.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(160px,2fr) minmax(190px,300px);
+.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(160px,2fr) minmax(190px,300px) minmax(110px,170px);
 gap:12px;align-items:center;padding:9px 0;font-size:11.5px}
 .mrow .nm{font-family:var(--mono);font-weight:600;color:var(--t1);overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -139,6 +139,11 @@ font-variant-numeric:tabular-nums;white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:3px;flex:none;display:inline-block;vertical-align:-1px}
 .vendor{font-size:9px;color:var(--t3);border:1px solid var(--bd);border-radius:4px;
 padding:1px 5px;margin-left:6px}
+/* 按模型消耗行末的「平台」列：该模型在哪些平台被使用（窗口口径，与左侧数值一致） */
+.mrow .plats{display:flex;flex-wrap:wrap;gap:3px;align-content:center}
+.pchip{font-size:8.5px;line-height:1.5;color:var(--t2);background:var(--surface2);
+border:1px solid var(--bd);border-radius:4px;padding:1px 5px;white-space:nowrap}
+.mrow.dim .plats{opacity:.45}
 /* ---- 通用表 ---- */
 table{width:100%;border-collapse:collapse;font-size:11.5px}
 th{text-align:left;font-weight:500;color:var(--t3);font-size:10px;padding:8px 8px;
@@ -308,7 +313,14 @@ __HERO__
 <div class="duo">
 <div class="card"><h3>按模型消耗</h3><div class="cap" id="modelCap">__MODELCAP__</div>
 <div id="modelRows">__MODELS__</div></div>
-<div class="card"><h3>每日用量趋势</h3><div class="cap">按模型堆叠 · 点击图例聚焦 · 单位 Token</div>
+<div class="card"><div class="cardhead">
+<h3>每日用量趋势</h3><span class="hdnote" id="dailyNote">按模型堆叠 · 点击图例聚焦 · 单位 Token · 总量口径</span>
+<div class="hdtools" id="dailySpan">
+<button type="button" class="mini" data-span="1">1日</button>
+<button type="button" class="mini" data-span="3">3日</button>
+<button type="button" class="mini on" data-span="7">7日</button>
+<button type="button" class="mini" data-span="month">本月</button>
+</div></div>
 <div id="dailyChart">__DAILY__</div></div>
 </div>
 <div class="sec"><b>02</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
@@ -378,6 +390,7 @@ var distTop=__DIST_TOP__;  // 单次请求大小分布显示的模型数（0=全
 var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部），与 Python 常量同源
 var hourTop=__HOUR_TOP__;  // 0—24 时分布显示的曲线数（0=全部），与 Python 常量同源
 var hourMode='all';  // 0—24 时分布口径：all=全部数据累计（不限窗口）/ today=仅聚焦日逐时
+var dailySpan='7';   // 每日用量趋势可见跨度：1 / 3 / 7 个自然日 或 本月（month），数据按总量口径
 /* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
    与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
 var dayMode=false,dayKey='';
@@ -474,7 +487,7 @@ function aggregate(){
        mtAll / sizesAll / allAll = 全量模型总量与单次请求大小：
        单次请求大小分布整卡、以及「累计」档的 TOP 模型排序都按总量口径。 */
     hball:{},thb:{},hm:{},hmAll:{},wsAll:{},sessAll:{},wsT:{},sessT:[],
-    sizesAll:{},allAll:[],bands:[0,0,0,0],plats:{}};
+    sizesAll:{},allAll:[],bands:[0,0,0,0],plats:{},dmAll:{},modelPlats:{}};
   for(var si=0;si<SESS.length;si++){
     var s=SESS[si];if(platFilter>=0&&s.p!==platFilter)continue;
     var sn=0,sessDay={};
@@ -489,6 +502,7 @@ function aggregate(){
       (A.hball[r[1]]=A.hball[r[1]]||new Array(24).fill(0))[hA]+=r[2];
       (A.dailyAll[dkA]=A.dailyAll[dkA]||{h:new Array(24).fill(0),tt:0});
       A.dailyAll[dkA].h[hA]+=r[2];A.dailyAll[dkA].tt+=r[2];
+      (A.dmAll[dkA]=A.dmAll[dkA]||{})[r[1]]=(A.dmAll[dkA][r[1]]||0)+r[2];
       (A.hmAll[dkA]=A.hmAll[dkA]||new Array(24).fill(0))[hA]+=r[2];
       (sessDay[dkA]=sessDay[dkA]||new Array(24).fill(0))[hA]+=r[2];
       (A.wsAll[s.w]=A.wsAll[s.w]||{});
@@ -502,6 +516,7 @@ function aggregate(){
       (A.hm[dk]=A.hm[dk]||new Array(24).fill(0))[h]+=r[2];
       (A.dm[dk]=A.dm[dk]||{})[r[1]]=(A.dm[dk][r[1]]||0)+r[2];
       A.mt[r[1]]+=r[2];A.bands[Math.min(3,Math.floor(h/6))]+=r[2];
+      (A.modelPlats[r[1]]=A.modelPlats[r[1]]||[]);if(A.modelPlats[r[1]].indexOf(s.p)<0)A.modelPlats[r[1]].push(s.p);
       if(dk===focusKey)(A.thb[r[1]]=A.thb[r[1]]||new Array(24).fill(0))[h]+=r[2];
       sn++;}
     if(sn)A.nsess++;
@@ -603,20 +618,38 @@ function modelRows(A){
       +'<span class="track"><i style="width:'+pct(A.mt[mi],cap).toFixed(1)
       +'%;background:'+pal(mi)+'"></i></span>'
       +'<span class="num">'+fmt(A.mt[mi])+'&ensp;·&ensp;'+esc(VENDOR[mi]||'')+'&ensp;·&ensp;'
-      +pct(A.mt[mi],A.tot).toFixed(1)+'%</span></div>';});
+      +pct(A.mt[mi],A.tot).toFixed(1)+'%</span>'
+      +'<span class="plats">'+((A.modelPlats[mi]||[]).map(function(pi){
+        return '<i class="pchip">'+esc(plabel(pi))+'</i>';}).join(''))+'</span></div>';});
   /* 缓存命中率 / 输入·输出比已在 KPI 区呈现，这里不再重复画低区分度的进度条 */
   return rows;
 }
 
 /* ---------------- 每日堆叠柱 ---------------- */
+/* 数据按总量口径（A.dmAll，全部扫描数据，不受顶部周期窗口影响）；
+   dailySpan 仅决定「画哪一段」：1 / 3 / 7 个自然日 或 当月。 */
+function dailyDays(A){
+  var all=Object.keys(A.dmAll||{}).sort();
+  if(!all.length)return [];
+  var t=todayDate(),res;
+  if(dailySpan==='month'){
+    var lo=new Date(t.getFullYear(),t.getMonth(),1).getTime()/60000;
+    res=all.filter(function(dk){return dayStartMin(dk)>=lo;});
+  }else{
+    var n=+dailySpan,base0=new Date(t.getTime()-(n-1)*86400000);
+    var lo=dayStartMin(fm(base0));
+    res=all.filter(function(dk){return dayStartMin(dk)>=lo;});
+  }
+  return res.length?res:all;   // 该跨度无数据则回退到全量，避免空白
+}
 function renderDaily(A){
-  var days=Object.keys(A.dm).sort().slice(-14);
+  var days=dailyDays(A);
   if(!days.length){$('#dailyChart').innerHTML='<div class="cap">暂无数据</div>';return;}
-  var order=orderByTokens(A);
+  var order=orderByTokensAll(A);   // 总量口径排序，堆叠顺序跨跨度稳定
   var top=order.slice(0,6);
   if(selModel!==null&&top.indexOf(selModel)<0)top.push(selModel);
   var mx=1;
-  days.forEach(function(dk){var t=0;Object.keys(A.dm[dk]).forEach(function(k){t+=A.dm[dk][k];});
+  days.forEach(function(dk){var t=0,o=A.dmAll[dk]||{};Object.keys(o).forEach(function(k){t+=o[k];});
     if(t>mx)mx=t;});
   var W=460,H=190,left=40,base=158,slot=(W-left-8)/days.length;
   var bw=Math.max(5,Math.min(34,slot*0.6));
@@ -627,7 +660,8 @@ function renderDaily(A){
     '<text x="2" y="'+(base+3)+'" fill="var(--t3)" font-size="9">0</text>'];
   days.forEach(function(dk,i){
     var x=left+i*slot+(slot-bw)/2,acc=0,parts=[];
-    top.forEach(function(mi){if(A.dm[dk][mi])parts.push([mi,A.dm[dk][mi]]);});
+    var o=A.dmAll[dk]||{};
+    top.forEach(function(mi){if(o[mi])parts.push([mi,o[mi]]);});
     parts.sort(function(a,b){return b[1]-a[1];});
     var dayTot=parts.reduce(function(a,p){return a+p[1];},0);
     parts.forEach(function(pr){var mi=pr[0],v=pr[1],h=v/mx*(base-16),y=base-acc-h;
@@ -1181,6 +1215,10 @@ document.addEventListener('click',function(ev){
     selModel=(selModel===mi?null:mi);renderAll();return;}
   if((n=t.closest('[data-hv]'))){heatView=n.dataset.hv;
     if(LASTA)renderHeat(LASTA);return;}
+  if((n=t.closest('[data-span]'))){dailySpan=n.dataset.span;
+    [].forEach.call(document.querySelectorAll('#dailySpan [data-span]'),function(b){
+      b.classList.toggle('on',b===n);});
+    if(LASTA)renderDaily(LASTA);return;}
 });
 $('#wsSearch').addEventListener('input',function(ev){
   q=ev.target.value.trim().toLowerCase();renderAll();});

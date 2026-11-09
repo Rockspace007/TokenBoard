@@ -147,6 +147,32 @@ class TestRender(unittest.TestCase):
         for dead in ("A.sizes[", "A.gp50;", "A.ws[", "A.sess.push"):
             self.assertNotIn(dead, html)
 
+    def test_daily_trend_total_caliber_and_span_toggle(self):
+        """每日用量趋势按总量口径（A.dmAll）渲染，并带 1日/3日/7日/本月 跨度切换。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        # 4 个跨度切换按钮齐全，默认高亮 7日
+        for btn in ('data-span="1"', 'data-span="3"', 'data-span="month"'):
+            self.assertIn(btn, html)
+        self.assertIn('class="mini on" data-span="7"', html)
+        self.assertIn('id="dailySpan"', html)
+        self.assertIn("var dailySpan='7';", html)
+        # 数据源切到总量口径：新增全量逐日×模型桶，渲染读取 A.dmAll
+        self.assertIn("A.dmAll[dkA][r[1]]", html)
+        self.assertIn("function dailyDays(A)", html)
+        self.assertIn("orderByTokensAll(A)", html)   # 每日柱模型排序按总量
+        self.assertIn("每日用量趋势", html)
+        self.assertIn("总量口径", html)
+
+    def test_model_rows_platform_column(self):
+        """按模型消耗行末新增「平台」列，展示该模型在哪些平台被使用。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        self.assertIn('class="plats"', html)          # 平台列容器
+        self.assertIn(".pchip{", html)               # 平台 chip 样式
+        self.assertIn("A.modelPlats[mi]", html)       # 每模型平台集合聚合
+        self.assertIn("plabel(pi)", html)            # 渲染平台名
+        # 网格新增第 4 列（平台），宽度落在 minmax(110px,170px)
+        self.assertIn("minmax(110px,170px)", html)
+
     def test_heat_level_follows_palette_length(self):
         """色阶档位不得超出色板长度：越界会取到 undefined，导致有数据的格子变透明。"""
         html = render_html(self.summary, self.records, self.statuses)
