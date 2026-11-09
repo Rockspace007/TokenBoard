@@ -250,6 +250,9 @@ body[data-metric=cost] .v-token{display:none}
 /* ---- 图表通用 ---- */
 svg{display:block;width:100%;height:auto}
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}
+/* 每日用量趋势图例：两行收紧、整块下沉离标题更松，与下方柱状图留足间距不遮挡。
+   仅作用于 #dailyChart（JS 版 + 静态降级版），不影响 0—24 时分布的通用图例。 */
+#dailyChart .legend{row-gap:5px;column-gap:14px;margin-top:12px;margin-bottom:10px}
 .legend span{font-size:10.5px;color:var(--t2);display:flex;align-items:center;gap:6px;cursor:pointer}
 .legend span.pinned{cursor:default}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}

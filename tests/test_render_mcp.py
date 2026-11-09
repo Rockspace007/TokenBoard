@@ -164,6 +164,10 @@ class TestRender(unittest.TestCase):
         self.assertIn("endK=fm(t),loK;", html)
         self.assertIn("每日用量趋势", html)
         self.assertIn("总量口径", html)
+        # 图例间距：作用域限定 #dailyChart，两行收紧(row-gap)、整块下沉离标题更松、
+        # 与下方柱状图留足间距；不清染 0—24 时分布的通用 .legend。
+        self.assertIn("#dailyChart .legend{row-gap:5px;column-gap:14px;margin-top:12px;margin-bottom:10px}", html)
+        self.assertIn(".legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}", html)
 
     def test_model_rows_platform_column(self):
         """按模型消耗行末新增「平台」列，展示该模型在哪些平台被使用。"""
