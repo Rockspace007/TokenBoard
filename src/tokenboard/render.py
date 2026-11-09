@@ -123,7 +123,7 @@ padding:18px 22px;margin-bottom:16px}
 /* ---- 模型条 ---- */
 /* 名字列宽度由 JS 测量所有模型名（含厂商 chip）后写入 --nmw，保证完整显示；
    上限 cap 在 max(200px, 42vw)，极长名超出上限仍走省略号，条形列永远保底可见 */
-.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(72px,104px) minmax(150px,1fr) minmax(96px,150px);
+.mrow{display:grid;grid-template-columns:var(--nmw,200px) minmax(0,1fr) minmax(190px,200px) minmax(0,96px);
 gap:10px;align-items:center;padding:9px 0;font-size:11.5px}
 .mrow .nm{font-family:var(--mono);font-weight:600;color:var(--t1);overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -140,7 +140,7 @@ font-variant-numeric:tabular-nums;white-space:nowrap}
 .vendor{font-size:9px;color:var(--t3);border:1px solid var(--bd);border-radius:4px;
 padding:1px 5px;margin-left:6px}
 /* 按模型消耗行末的「平台」列：该模型在哪些平台被使用（窗口口径，与左侧数值一致） */
-.mrow .plats{display:flex;flex-wrap:wrap;gap:3px;align-content:center}
+.mrow .plats{display:flex;flex-wrap:wrap;gap:3px;align-content:center;justify-content:flex-end}
 .pchip{font-size:8.5px;line-height:1.5;color:var(--t2);background:var(--surface2);
 border:1px solid var(--bd);border-radius:4px;padding:1px 5px;white-space:nowrap}
 .mrow.dim .plats{opacity:.45}
@@ -1562,7 +1562,8 @@ def _model_card(summary: Summary, palette: dict[str, str]) -> str:
             f'<span class="track"><i style="width:{tokens / cap * 100:.1f}%;'
             f'background:{e(palette[m])}"></i></span>'
             f'<span class="num">{fmt(tokens)}&ensp;·&ensp;{e(vendor_of(m))}&ensp;·&ensp;'
-            f'{share:.1f}%</span></div>'
+            f'{share:.1f}%</span>'
+            f'<span class="plats"></span></div>'   # 平台列由 JS 填充，静态降级占位保持 4 列对齐
         )
     # 缓存命中率 / 输入·输出比已在 KPI 区呈现，这里不再重复画低区分度的进度条
     return "".join(rows)

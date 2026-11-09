@@ -172,8 +172,11 @@ class TestRender(unittest.TestCase):
         self.assertIn(".pchip{", html)               # 平台 chip 样式
         self.assertIn("A.modelPlats[mi]", html)       # 每模型平台集合聚合
         self.assertIn("plabel(pi)", html)            # 渲染平台名
-        # 网格新增第 4 列（平台），进度条轨道列已收窄为固定窄宽 minmax(72px,104px)
-        self.assertIn("minmax(72px,104px)", html)
+        # 网格 4 列：轨道列用 1fr 弹性延长吃掉中段空白，数值/平台列固定宽并靠右贴边，
+        # 平台 chip 右对齐；各行严格对齐，右侧不留白。
+        self.assertIn("var(--nmw,200px) minmax(0,1fr) minmax(190px,200px) minmax(0,96px)", html)
+        self.assertIn("justify-content:flex-end", html)   # 平台列贴右
+        self.assertIn('<span class="plats"></span>', html)  # 静态降级首屏保持 4 列对齐
 
     def test_heat_level_follows_palette_length(self):
         """色阶档位不得超出色板长度：越界会取到 undefined，导致有数据的格子变透明。"""
