@@ -473,6 +473,9 @@ function orderByTokens(A){return models.map(function(m,i){return i;})
 function orderByTokensAll(A){return models.map(function(m,i){return i;})
   .filter(function(i){return A.mtAll[i]>0;})
   .sort(function(a,b){return A.mtAll[b]-A.mtAll[a];});}
+/* 「按模型消耗」列表 与「每日用量趋势」堆叠柱共用的可见模型集合（窗口口径取前 8）。
+   两卡共用此函数，集合天然一致：左侧列表随周期/平台变化时，右侧堆的模型随之联动。 */
+function visibleModels(A){return orderByTokens(A).slice(0,8);}
 
 /* ---------------- 聚合（与 Python 口径一致） ---------------- */
 function aggregate(){
@@ -609,10 +612,10 @@ function renderKpis(A){
 
 /* ---------------- 按模型消耗 ---------------- */
 function modelRows(A){
-  var order=orderByTokens(A);
+  var order=visibleModels(A);   // 与右侧「每日用量趋势」严格共用同一模型集合
   if(!order.length)return '<div class="cap">暂无数据</div>';
   var cap=A.mt[order[0]]||1,rows='';
-  order.slice(0,8).forEach(function(mi){
+  order.forEach(function(mi){
     var dim=selModel!==null&&selModel!==mi;
     rows+='<div class="mrow'+(dim?' dim':'')+'"><span class="nm" data-dm="'+mi
       +'" title="点击聚焦该模型"><i class="dot" style="background:'+pal(mi)+'"></i>'+esc(models[mi])
@@ -648,19 +651,29 @@ function dailyDays(A){
 function renderDaily(A){
   var days=dailyDays(A);
   if(!days.length){$('#dailyChart').innerHTML='<div class="cap">暂无数据</div>';return;}
-  var order=orderByTokensAll(A);   // 总量口径排序，堆叠顺序跨跨度稳定
-  var top=order.slice(0,6);
+  /* 与左侧「按模型消耗」严格共用同一模型集合（窗口口径前 8），左侧列表随周期/平台
+     变化时这里堆的模型同步变化；数据仍取总量口径 A.dmAll，柱高也随之联动。 */
+  var top=visibleModels(A);
   if(selModel!==null&&top.indexOf(selModel)<0)top.push(selModel);
   var mx=1;
-  days.forEach(function(dk){var t=0,o=A.dmAll[dk]||{};Object.keys(o).forEach(function(k){t+=o[k];});
+  days.forEach(function(dk){var t=0,o=A.dmAll[dk]||{};
+    top.forEach(function(mi){t+=o[mi]||0;});   // 柱高基准只算可见模型，柱高才能跟随列表
     if(t>mx)mx=t;});
   var W=460,H=190,left=40,base=158,slot=(W-left-8)/days.length;
   var bw=Math.max(5,Math.min(34,slot*0.6));
+  /* 日期标注自适应：槽宽放得下完整「MM-DD」(约 28px) 就每根标全(如 11-05)；
+     柱多、放不下时切短标签「D日」(如 5日)，并在左上角 Y 轴峰值下方补月份角标
+     「M月」(如 11月)，月份信息不丢。每根柱始终都有日期标签，不再稀疏抽稀。 */
+  var compact=slot<28;              // 放不下 11-05 这类完整日期
+  var fs=slot<15?7:9;               // 极密(本月 28~31 根)再缩字号，保证「5日」不重叠
+  var lastM=+days[days.length-1].slice(5,7);
   var out=['<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="每日模型用量堆叠柱图">',
     '<path d="M'+left+' 16H'+(W-4)+'M'+left+' '+base+'H'+(W-4)
     +'" stroke="var(--bd)" stroke-width="1" fill="none"/>',
-    '<text x="2" y="20" fill="var(--t3)" font-size="9">'+fmt(mx)+'</text>',
-    '<text x="2" y="'+(base+3)+'" fill="var(--t3)" font-size="9">0</text>'];
+    '<text x="2" y="20" fill="var(--t3)" font-size="9">'+fmt(mx)+'</text>'];
+  if(compact)out.push('<text x="2" y="32" fill="var(--brandb)" font-size="9" '
+    +'font-weight="600">'+lastM+'月</text>');   // 左上角红框位：月份角标
+  out.push('<text x="2" y="'+(base+3)+'" fill="var(--t3)" font-size="9">0</text>');
   days.forEach(function(dk,i){
     var x=left+i*slot+(slot-bw)/2,acc=0,parts=[];
     var o=A.dmAll[dk]||{};
@@ -678,12 +691,13 @@ function renderDaily(A){
     out.push('<rect x="'+(left+i*slot).toFixed(1)+'" y="16" width="'+slot.toFixed(1)
       +'" height="'+(base-16)+'" fill="#fff" fill-opacity="0" pointer-events="all" data-tip="'
       +esc(dayTip)+'"/>');
-    var stepL=Math.max(1,Math.ceil(days.length/3));
-    if(days.length<=4||i%stepL===0)out.push('<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+15)
-      +'" fill="var(--t3)" font-size="9" text-anchor="middle">'+dk.slice(5)+'</text>');
+    /* 每根柱都标日期：宽松档「11-05」，紧凑档「5日」(月份已提到左上角) */
+    var lab=compact?(parseInt(dk.slice(8),10)+'日'):dk.slice(5);
+    out.push('<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+15)
+      +'" fill="var(--t3)" font-size="'+fs+'" text-anchor="middle">'+lab+'</text>');
   });
   out.push('</svg>');
-  var legend=order.slice(0,6).map(function(mi){
+  var legend=top.map(function(mi){
     var dim=selModel!==null&&selModel!==mi;
     return '<span data-dm="'+mi+'"'+(dim?' style="opacity:.4"':'')
       +'><i style="background:'+pal(mi)+'"></i>'+esc(models[mi])+'</span>';}).join('');
@@ -1580,21 +1594,31 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
     days = sorted(matrix)[-14:]
     if not days:
         return '<div class="cap">暂无数据</div>'
-    max_total = max(sum(matrix[d].values()) for d in days) or 1
+    # 与 JS 版 renderDaily 严格同口径：模型集合取前 8，柱高基准只算这 8 个模型，
+    # 图例也取前 8。左侧「按模型消耗」列表同样是前 8，两卡集合一致。
+    top_models = summary.models[:8]
+    max_total = max((sum(matrix[d].get(m, 0) for m in top_models) for d in days), default=0) or 1
     width, height, left, base = 460, 190, 40, 158
     slot = (width - left - 8) / len(days)
     bar_w = max(5.0, min(34.0, slot * 0.6))
+    # 日期标注自适应：槽宽 <28px 放不下完整 MM-DD，切短标「D日」并在左上角补月份角标。
+    compact = slot < 28
+    fs = 7 if slot < 15 else 9
+    last_m = int(days[-1][5:7])
     parts = [
         f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="每日模型用量堆叠柱图">',
         f'<path d="M{left} 16H{width - 4}M{left} {base}H{width - 4}" '
         'stroke="var(--bd)" stroke-width="1" fill="none"/>',
         f'<text x="2" y="20" fill="var(--t3)" font-size="9">{fmt(max_total)}</text>',
-        f'<text x="2" y="{base + 3}" fill="var(--t3)" font-size="9">0</text>',
     ]
+    if compact:
+        parts.append(f'<text x="2" y="32" fill="var(--brandb)" font-size="9" '
+                     f'font-weight="600">{last_m}月</text>')
+    parts.append(f'<text x="2" y="{base + 3}" fill="var(--t3)" font-size="9">0</text>')
     for i, day in enumerate(days):
         x = left + i * slot + (slot - bar_w) / 2
         acc = 0.0
-        for model in summary.models:
+        for model in top_models:
             value = matrix[day].get(model, 0)
             if not value:
                 continue
@@ -1606,16 +1630,16 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
                 f'stroke="var(--bg)" stroke-width=".6"><title>{e(day)} · {e(model)} · {fmt(value)}</title></rect>'
             )
             acc += h
-        step = max(1, len(days) // 3)
-        if len(days) <= 4 or i % step == 0:
-            parts.append(
-                f'<text x="{x + bar_w / 2:.1f}" y="{base + 15}" fill="var(--t3)" '
-                f'font-size="9" text-anchor="middle">{e(day[5:])}</text>'
-            )
+        # 每根柱都标日期：宽松档「11-05」，紧凑档「5日」（月份已提到左上角）。
+        lab = f'{int(day[8:])}日' if compact else day[5:]
+        parts.append(
+            f'<text x="{x + bar_w / 2:.1f}" y="{base + 15}" fill="var(--t3)" '
+            f'font-size="{fs}" text-anchor="middle">{e(lab)}</text>'
+        )
     parts.append("</svg>")
     legend = "".join(
         f'<span data-dm="{mi}"><i style="background:{e(palette[m])}"></i>{e(m)}</span>'
-        for mi, m in enumerate(summary.models[:6])
+        for mi, m in enumerate(top_models)
     )
     return f'<div class="legend">{legend}</div>' + "".join(parts)
 

@@ -159,7 +159,14 @@ class TestRender(unittest.TestCase):
         # 数据源切到总量口径：新增全量逐日×模型桶，渲染读取 A.dmAll
         self.assertIn("A.dmAll[dkA][r[1]]", html)
         self.assertIn("function dailyDays(A)", html)
-        self.assertIn("orderByTokensAll(A)", html)   # 每日柱模型排序按总量
+        self.assertIn("orderByTokensAll(A)", html)   # 累计档 / 大小分布仍按总量排序
+        # 每日柱模型集合与左侧「按模型消耗」严格共用 visibleModels（窗口口径前 8），
+        # 左侧列表随周期/平台变化时右侧堆的模型与柱高同步联动。
+        self.assertIn("function visibleModels(A){return orderByTokens(A).slice(0,8);}", html)
+        self.assertIn("var top=visibleModels(A);", html)   # renderDaily 采用共用集合
+        self.assertIn("var order=visibleModels(A);", html)  # modelRows 采用共用集合
+        # 柱高基准只按可见模型累加，柱高才能跟随左侧列表
+        self.assertIn("top.forEach(function(mi){t+=o[mi]||0;});", html)
         # 本月/跨度改为连续日轴（当月1日→今日），不再依赖有数据日做过滤
         self.assertIn("endK=fm(t),loK;", html)
         self.assertIn("每日用量趋势", html)
@@ -168,6 +175,28 @@ class TestRender(unittest.TestCase):
         # 与下方柱状图留足间距；不清染 0—24 时分布的通用 .legend。
         self.assertIn("#dailyChart .legend{row-gap:5px;column-gap:14px;margin-top:12px;margin-bottom:10px}", html)
         self.assertIn(".legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}", html)
+
+    def test_daily_bars_all_dates_and_compact_month(self):
+        """每日柱每根都标日期；柱多放不下时切「D日」短标并在左上角补「M月」角标。"""
+        html = render_html(self.summary, self.records, self.statuses)
+        # JS 版：移除旧的稀疏抽稀逻辑，改为每根柱都输出一个日期标签
+        self.assertNotIn("var stepL=", html)                    # 旧的隔 N 根才标已移除
+        self.assertIn("var compact=slot<28;", html)             # 槽宽阈值判定
+        self.assertIn("var fs=slot<15?7:9;", html)              # 极密缩字号防重叠
+        self.assertIn("compact?(parseInt(dk.slice(8),10)+'日'):dk.slice(5)", html)  # 短标/全标
+        self.assertIn("+lastM+'月</text>'", html)                # 左上角月份角标
+        # 图例跟随共用集合，不再写死前 6
+        self.assertIn("var legend=top.map(function(mi){", html)
+
+    def test_static_daily_card_same_caliber(self):
+        """静态降级首屏 _daily_card 与 JS 版同口径：前 8 模型 + 每柱标日期 + 月份角标。"""
+        import inspect
+        from tokenboard import render as rmod
+        src = inspect.getsource(rmod._daily_card)
+        self.assertIn("top_models = summary.models[:8]", src)   # 模型集合前 8
+        self.assertIn("compact = slot < 28", src)                # 同一紧凑阈值
+        self.assertIn("f'{int(day[8:])}日' if compact else day[5:]", src)  # 每柱标日期
+        self.assertIn("f'font-weight=\"600\">{last_m}月</text>'", src)     # 月份角标
 
     def test_model_rows_platform_column(self):
         """按模型消耗行末新增「平台」列，展示该模型在哪些平台被使用。"""
