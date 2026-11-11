@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-11-11
+
+### Changed
+
+- 每日用量趋势**堆叠模型集合与左侧「按模型消耗」严格对齐**:两卡共用 `visibleModels(A)`(窗口口径前 8),左侧列表随周期 / 平台变化时,右侧堆的模型、图例与**柱高基准**同步联动(此前右侧固定堆总量口径前 6,与左侧数量不符、柱高偏矮)。数据仍取总量口径 `A.dmAll`。
+- 每日用量趋势**每根柱都标注日期**(不再稀疏抽稀):槽宽 ≥28px 时标完整 `MM-DD`;柱多、放不下时自动切短标 `D日`,并在左上角 Y 轴峰值下方补月份角标 `M月`(极密 28~31 根再缩字号防重叠)。静态降级首屏同口径。
+
 ## [0.6.2] - 2026-11-10
 
 0.6.1 发布前对「模型与品牌色」区两卡片的交互与排版打磨。
@@ -14,8 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 每日用量趋势的跨度切换由分段按钮改为**下拉框**(`<select>`,与 TOP / 口径控件一致),置于卡片标题行右侧。
 - 按模型消耗行改为**轨道弹性延长 + 信息贴右**:轨道列 `1fr` 吃满模型名与数值列之间的中段空白(数据条明显变长),数值列固定 200px、平台列固定 96px 且右对齐,后段信息整体贴卡片右边缘,各行严格对齐、右侧不留白。静态降级首屏同步补齐第 4 列占位。
 - 每日用量趋势图例排版:两行模型标注**行距收紧**(`row-gap` 14px → 5px,同行列距不变),整块**下沉**离标题更松(新增 `margin-top:12px`),与下方柱状图留足间距(`margin-bottom` 8px → 10px,不遮挡)。样式作用域限定 `#dailyChart`,不影响 0—24 时分布的通用图例。
-- 每日用量趋势**堆叠模型集合与左侧「按模型消耗」严格对齐**:两卡共用 `visibleModels(A)`(窗口口径前 8),左侧列表随周期 / 平台变化时,右侧堆的模型、图例与**柱高基准**同步联动(此前右侧固定堆总量口径前 6,与左侧数量不符、柱高偏矮)。数据仍取总量口径 `A.dmAll`。
-- 每日用量趋势**每根柱都标注日期**(不再稀疏抽稀):槽宽 ≥28px 时标完整 `MM-DD`;柱多、放不下时自动切短标 `D日`,并在左上角 Y 轴峰值下方补月份角标 `M月`(极密 28~31 根再缩字号防重叠)。静态降级首屏同口径。
 
 ### Fixed
 
@@ -88,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 对齐定稿设计稿重做看板。
 
+[0.6.3]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Rockspace007/TokenBoard/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Rockspace007/TokenBoard/compare/v0.5.0...v0.6.0
