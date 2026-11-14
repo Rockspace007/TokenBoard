@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-11-14
+
+### Changed
+
+- 每日用量趋势**改按面板自身跨度口径统计**:数值与模型 TOP 都按面板自己的「1日 / 3日 / 7日 / 本月」下拉范围计算,不再挂「总量口径」。做法是从仅受平台筛选的全量逐日桶 `A.dmAll` 按 `dailyDays` 切出跨度内日期,再累加每模型消耗 `spanMt` 排序取 TOP N;此前模型 TOP 借用窗口口径 `A.mt`,会随顶部周期胶囊 / 指定日 / 自定义区间漂移。现在顶部周期变化时,本卡片的模型集合、柱高、图例都不变。副标题随跨度显示「本月口径 / N日口径 · 当前 TOP N」。
+- 每日用量趋势**本月横轴固定短标 + 月份角标**:选「本月」时每根柱只标「1日…31日」,并在横轴左端(左侧红框位)标出当月「11月」;此前月份角标只在柱多到放不下 `MM-DD` 时才出现在左上角,选「本月」但只有 14 根柱时看不到月份。其它跨度仍按槽宽自适应、保持完整 `MM-DD`。静态降级首屏同口径(角标同落横轴左端,模型 TOP 也按所画日期段内消耗排序)。
+
 ## [0.6.4] - 2026-11-14
 
 ### Added

@@ -318,7 +318,7 @@ __HERO__
 <div class="card"><h3>按模型消耗</h3><div class="cap" id="modelCap">__MODELCAP__</div>
 <div id="modelRows">__MODELS__</div></div>
 <div class="card"><div class="cardhead">
-<h3>每日用量趋势</h3><span class="hdnote" id="dailyNote">按模型堆叠 · 点击图例聚焦 · 单位 Token · 总量口径</span>
+<h3>每日用量趋势</h3><span class="hdnote" id="dailyNote">按模型堆叠 · 点击图例聚焦 · 单位 Token · 7日口径 · 当前 TOP 8</span>
 <div class="hdtools">
 <select class="mini" id="dailySpan" aria-label="每日趋势跨度">
 <option value="1">1日</option><option value="3">3日</option>
@@ -635,8 +635,9 @@ function modelRows(A){
 }
 
 /* ---------------- 每日堆叠柱 ---------------- */
-/* 数据按总量口径（A.dmAll，全部扫描数据，不受顶部周期窗口影响）；
-   dailySpan 仅决定「画哪一段」：1 / 3 / 7 个自然日 或 当月。 */
+/* 本卡片口径完全独立：数值与模型 TOP 都按面板自己的跨度（dailySpan）统计，
+   不受顶部周期窗口影响。做法是从仅受平台筛选的全量逐日桶 A.dmAll 中按 dailyDays
+   切出跨度内日期，再累加每模型消耗；周期胶囊/指定日/自定义区间变化时本卡片不变。 */
 /* 生成连续日轴：1/3/7 日 = 含今日往前 N 天；本月 = 当月 1 日 → 今日。
    即便某些天无数据也补齐空柱，保证「N 日 / 本月」严格对应天数（连续刻度）。 */
 function dailyDays(A){
@@ -655,37 +656,44 @@ function dailyDays(A){
 function renderDaily(A){
   var days=dailyDays(A);
   if(!days.length){$('#dailyChart').innerHTML='<div class="cap">暂无数据</div>';return;}
-  /* 模型集合由本面板自己的「每日趋势显示模型数量」下拉（dailyTop）控制，不再与左侧
-     「按模型消耗」共用全局前 8；柱高基准、图例、堆叠均按此集合。数据仍取总量口径 A.dmAll。 */
-  var order=orderByTokens(A);
-  var top=dailyTop>0?order.slice(0,dailyTop):order;
+  /* 跨度内数据切片 + 跨度内每模型总量：模型 TOP 排序也按本卡片跨度算，
+     不借用窗口口径 A.mt，因此顶部周期变化时这里显示的模型与柱高都不变。 */
+  var spanDm={},spanMt=new Array(models.length).fill(0);
+  days.forEach(function(dk){var o=A.dmAll[dk]||{};spanDm[dk]=o;
+    for(var mi in o){if(o.hasOwnProperty(mi))spanMt[mi]+=o[mi];}});
+  var spanOrder=models.map(function(m,i){return i;})
+    .filter(function(i){return spanMt[i]>0;})
+    .sort(function(a,b){return spanMt[b]-spanMt[a];});
+  var top=dailyTop>0?spanOrder.slice(0,dailyTop):spanOrder;
   if(selModel!==null&&top.indexOf(selModel)<0)top.push(selModel);
+  var spanLabel=dailySpan==='month'?'本月口径':(dailySpan+'日口径');
   var dn=document.getElementById('dailyNote');
-  if(dn)dn.textContent='按模型堆叠 · 点击图例聚焦 · 单位 Token · 总量口径'
-    +(dailyTop>0?' · 当前 TOP '+dailyTop+(selModel!==null?' +聚焦':'')
-      :' · 全部模型'+(selModel!==null?' +聚焦':''));
+  if(dn)dn.textContent='按模型堆叠 · 点击图例聚焦 · 单位 Token · '+spanLabel
+    +(dailyTop>0?' · 当前 TOP '+dailyTop:' · 全部模型')
+    +(selModel!==null?' +聚焦':'');
   var mx=1;
-  days.forEach(function(dk){var t=0,o=A.dmAll[dk]||{};
+  days.forEach(function(dk){var t=0,o=spanDm[dk];
     top.forEach(function(mi){t+=o[mi]||0;});   // 柱高基准只算可见模型，柱高才能跟随列表
     if(t>mx)mx=t;});
   var W=460,H=190,left=40,base=158,slot=(W-left-8)/days.length;
   var bw=Math.max(5,Math.min(34,slot*0.6));
-  /* 日期标注自适应：槽宽放得下完整「MM-DD」(约 28px) 就每根标全(如 11-05)；
-     柱多、放不下时切短标签「D日」(如 5日)，并在左上角 Y 轴峰值下方补月份角标
-     「M月」(如 11月)，月份信息不丢。每根柱始终都有日期标签，不再稀疏抽稀。 */
-  var compact=slot<28;              // 放不下 11-05 这类完整日期
+  /* 日期标注：选「本月」时横轴整排都是同一个月，固定切短标「D日」(如 5日)，
+     并在横轴左端(左侧红框位)标出当月「M月」(如 11月)，月份信息不丢；
+     其它跨度按槽宽自适应：放得下完整「MM-DD」就标全，柱太密放不下时同样切短标并补月份。
+     每根柱始终都有日期标签，不再稀疏抽稀。 */
+  var compact=(dailySpan==='month')||(slot<28);
   var fs=slot<15?7:9;               // 极密(本月 28~31 根)再缩字号，保证「5日」不重叠
   var lastM=+days[days.length-1].slice(5,7);
   var out=['<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="每日模型用量堆叠柱图">',
     '<path d="M'+left+' 16H'+(W-4)+'M'+left+' '+base+'H'+(W-4)
     +'" stroke="var(--bd)" stroke-width="1" fill="none"/>',
     '<text x="2" y="20" fill="var(--t3)" font-size="9">'+fmt(mx)+'</text>'];
-  if(compact)out.push('<text x="2" y="32" fill="var(--brandb)" font-size="9" '
-    +'font-weight="600">'+lastM+'月</text>');   // 左上角红框位：月份角标
+  if(compact)out.push('<text x="2" y="'+(base+15)+'" fill="var(--brandb)" font-size="9" '
+    +'font-weight="600">'+lastM+'月</text>');   // 横轴左端红框位：当月月份
   out.push('<text x="2" y="'+(base+3)+'" fill="var(--t3)" font-size="9">0</text>');
   days.forEach(function(dk,i){
     var x=left+i*slot+(slot-bw)/2,acc=0,parts=[];
-    var o=A.dmAll[dk]||{};
+    var o=spanDm[dk];
     top.forEach(function(mi){if(o[mi])parts.push([mi,o[mi]]);});
     parts.sort(function(a,b){return b[1]-a[1];});
     var dayTot=parts.reduce(function(a,p){return a+p[1];},0);
@@ -700,7 +708,7 @@ function renderDaily(A){
     out.push('<rect x="'+(left+i*slot).toFixed(1)+'" y="16" width="'+slot.toFixed(1)
       +'" height="'+(base-16)+'" fill="#fff" fill-opacity="0" pointer-events="all" data-tip="'
       +esc(dayTip)+'"/>');
-    /* 每根柱都标日期：宽松档「11-05」，紧凑档「5日」(月份已提到左上角) */
+    /* 每根柱都标日期：宽松档「11-05」，紧凑档「5日」(月份已提到横轴左端) */
     var lab=compact?(parseInt(dk.slice(8),10)+'日'):dk.slice(5);
     out.push('<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+15)
       +'" fill="var(--t3)" font-size="'+fs+'" text-anchor="middle">'+lab+'</text>');
@@ -1606,14 +1614,19 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
     days = sorted(matrix)[-14:]
     if not days:
         return '<div class="cap">暂无数据</div>'
-    # 与 JS 版 renderDaily 同口径：模型集合取前 DEFAULT_DAILY_TOP（面板「显示模型数量」默认），
-    # 柱高基准只算这些模型，图例也取这些。不再与左侧列表共用全局前 8。
-    top_models = summary.models[:DEFAULT_DAILY_TOP]
+    # 与 JS 版 renderDaily 同口径（降级版无跨度下拉，画最近 14 个有数据日）：
+    # 模型 TOP 按这段日期内的消耗量排序，不借用全量模型排序；柱高基准只算这些模型。
+    span_mt: dict[str, int] = defaultdict(int)
+    for d in days:
+        for m, v in matrix[d].items():
+            span_mt[m] += v
+    top_models = [m for m in sorted(summary.models, key=lambda m: -span_mt.get(m, 0))
+                  if span_mt.get(m, 0) > 0][:DEFAULT_DAILY_TOP]
     max_total = max((sum(matrix[d].get(m, 0) for m in top_models) for d in days), default=0) or 1
     width, height, left, base = 460, 190, 40, 158
     slot = (width - left - 8) / len(days)
     bar_w = max(5.0, min(34.0, slot * 0.6))
-    # 日期标注自适应：槽宽 <28px 放不下完整 MM-DD，切短标「D日」并在左上角补月份角标。
+    # 日期标注自适应：槽宽 <28px 放不下完整 MM-DD，切短标「D日」并在横轴左端补月份角标。
     compact = slot < 28
     fs = 7 if slot < 15 else 9
     last_m = int(days[-1][5:7])
@@ -1624,7 +1637,7 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
         f'<text x="2" y="20" fill="var(--t3)" font-size="9">{fmt(max_total)}</text>',
     ]
     if compact:
-        parts.append(f'<text x="2" y="32" fill="var(--brandb)" font-size="9" '
+        parts.append(f'<text x="2" y="{base + 15}" fill="var(--brandb)" font-size="9" '
                      f'font-weight="600">{last_m}月</text>')
     parts.append(f'<text x="2" y="{base + 3}" fill="var(--t3)" font-size="9">0</text>')
     for i, day in enumerate(days):
@@ -1642,7 +1655,7 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
                 f'stroke="var(--bg)" stroke-width=".6"><title>{e(day)} · {e(model)} · {fmt(value)}</title></rect>'
             )
             acc += h
-        # 每根柱都标日期：宽松档「11-05」，紧凑档「5日」（月份已提到左上角）。
+        # 每根柱都标日期：宽松档「11-05」，紧凑档「5日」（月份已提到横轴左端）。
         lab = f'{int(day[8:])}日' if compact else day[5:]
         parts.append(
             f'<text x="{x + bar_w / 2:.1f}" y="{base + 15}" fill="var(--t3)" '
