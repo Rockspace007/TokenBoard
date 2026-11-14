@@ -25,6 +25,11 @@ DEFAULT_WS_TOP = 10
 # 0 表示全部模型；可选值见 render_html 里的 hour_opts（3 / 5 / 10 / 全部）。
 DEFAULT_HOUR_TOP = 3
 
+# 「每日用量趋势」堆叠柱图默认展示的模型数：静态首屏、下拉选中项、JS 初始值共用。
+# 0 表示全部模型；可选值见 render_html 里的 daily_opts（2 / 3 / 5 / 8 / 全部）。
+# 该面板不再与左侧「按模型消耗」共用全局前 8，模型数量由本面板自己的下拉控制。
+DEFAULT_DAILY_TOP = 8
+
 
 def percentile(values: Sequence[int | float], q: float) -> float:
     """线性插值分位数；``q`` 取 0~100，空序列返回 0.0。"""

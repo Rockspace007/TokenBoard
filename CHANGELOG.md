@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-11-14
+
+### Added
+
+- 每日用量趋势卡片新增**「显示模型数量」下拉**(TOP 2 / 3 / 5 / 8 / 全部),模型数量由**本面板自己控制**,与左侧「按模型消耗」解耦。JS 初始值 `dailyTop` 与 Python 常量 `DEFAULT_DAILY_TOP` 同源,下拉默认 **TOP 8**。
+
+### Changed
+
+- 每日用量趋势的堆叠模型集合**不再与左侧共用全局前 8**(`visibleModels`):此前右卡严格跟随左卡列表(随周期 / 平台联动);现改为由本面板 `dailyTop` 决定,柱高基准、图例、堆叠均按此集合。图例备注同步显示「当前 TOP N」。静态降级首屏 `_daily_card` 同口径(取前 `DEFAULT_DAILY_TOP`)。
+
 ## [0.6.3] - 2026-11-11
 
 ### Changed

@@ -28,6 +28,7 @@ from .aggregate import (
     DEFAULT_DIST_TOP,
     DEFAULT_HOUR_TOP,
     DEFAULT_WS_TOP,
+    DEFAULT_DAILY_TOP,
     Summary,
 )
 from .brands import GREEN_DARK, GREEN_LIGHT, HEATMAPS, palette_for, vendor_of
@@ -322,7 +323,9 @@ __HERO__
 <select class="mini" id="dailySpan" aria-label="每日趋势跨度">
 <option value="1">1日</option><option value="3">3日</option>
 <option value="7" selected>7日</option><option value="month">本月</option>
-</select></div></div>
+</select>
+<select class="mini" id="dailyTop" aria-label="每日趋势显示模型数量">__DAILYOPTS__</select>
+</div></div>
 <div id="dailyChart">__DAILY__</div></div>
 </div>
 <div class="sec"><b>02</b><h2>数据源状态与口径</h2><span>下钻顺序：平台 → 工作空间 → 会话 → 请求</span></div>
@@ -393,6 +396,7 @@ var wsTop=__WS_TOP__;      // 工作空间活跃分布显示的条数（0=全部
 var hourTop=__HOUR_TOP__;  // 0—24 时分布显示的曲线数（0=全部），与 Python 常量同源
 var hourMode='all';  // 0—24 时分布口径：all=全部数据累计（不限窗口）/ today=仅聚焦日逐时
 var dailySpan='7';   // 每日用量趋势可见跨度：1 / 3 / 7 个自然日 或 本月（month），数据按总量口径
+var dailyTop=__DAILY_TOP__;  // 每日用量趋势堆叠显示的模型数（0=全部），与 Python 常量同源
 /* 指定日模式：选定一个自然日后，所有卡片只聚合这一天。
    与周期胶囊、自定义日期区间互斥；dayKey 形如 'YYYY-MM-DD'。 */
 var dayMode=false,dayKey='';
@@ -651,10 +655,15 @@ function dailyDays(A){
 function renderDaily(A){
   var days=dailyDays(A);
   if(!days.length){$('#dailyChart').innerHTML='<div class="cap">暂无数据</div>';return;}
-  /* 与左侧「按模型消耗」严格共用同一模型集合（窗口口径前 8），左侧列表随周期/平台
-     变化时这里堆的模型同步变化；数据仍取总量口径 A.dmAll，柱高也随之联动。 */
-  var top=visibleModels(A);
+  /* 模型集合由本面板自己的「每日趋势显示模型数量」下拉（dailyTop）控制，不再与左侧
+     「按模型消耗」共用全局前 8；柱高基准、图例、堆叠均按此集合。数据仍取总量口径 A.dmAll。 */
+  var order=orderByTokens(A);
+  var top=dailyTop>0?order.slice(0,dailyTop):order;
   if(selModel!==null&&top.indexOf(selModel)<0)top.push(selModel);
+  var dn=document.getElementById('dailyNote');
+  if(dn)dn.textContent='按模型堆叠 · 点击图例聚焦 · 单位 Token · 总量口径'
+    +(dailyTop>0?' · 当前 TOP '+dailyTop+(selModel!==null?' +聚焦':'')
+      :' · 全部模型'+(selModel!==null?' +聚焦':''));
   var mx=1;
   days.forEach(function(dk){var t=0,o=A.dmAll[dk]||{};
     top.forEach(function(mi){t+=o[mi]||0;});   // 柱高基准只算可见模型，柱高才能跟随列表
@@ -1248,6 +1257,9 @@ if(distTopSel)distTopSel.addEventListener('change',function(ev){
 var dailySpanSel=$('#dailySpan');
 if(dailySpanSel)dailySpanSel.addEventListener('change',function(ev){
   dailySpan=ev.target.value;if(LASTA)renderDaily(LASTA);});
+var dailyTopSel=$('#dailyTop');
+if(dailyTopSel)dailyTopSel.addEventListener('change',function(ev){
+  dailyTop=+ev.target.value;if(LASTA)renderDaily(LASTA);});
 var wsTopSel=$('#wsTop');
 if(wsTopSel)wsTopSel.addEventListener('change',function(ev){
   wsTop=+ev.target.value;if(LASTA)renderPanel(LASTA);});
@@ -1594,9 +1606,9 @@ def _daily_card(records: Iterable[UsageRecord], summary: Summary, palette: dict[
     days = sorted(matrix)[-14:]
     if not days:
         return '<div class="cap">暂无数据</div>'
-    # 与 JS 版 renderDaily 严格同口径：模型集合取前 8，柱高基准只算这 8 个模型，
-    # 图例也取前 8。左侧「按模型消耗」列表同样是前 8，两卡集合一致。
-    top_models = summary.models[:8]
+    # 与 JS 版 renderDaily 同口径：模型集合取前 DEFAULT_DAILY_TOP（面板「显示模型数量」默认），
+    # 柱高基准只算这些模型，图例也取这些。不再与左侧列表共用全局前 8。
+    top_models = summary.models[:DEFAULT_DAILY_TOP]
     max_total = max((sum(matrix[d].get(m, 0) for m in top_models) for d in days), default=0) or 1
     width, height, left, base = 460, 190, 40, 158
     slot = (width - left - 8) / len(days)
@@ -2045,6 +2057,12 @@ def render_html(
         f'{" selected" if value == DEFAULT_HOUR_TOP else ""}>{label}</option>'
         for value, label in ((3, "TOP 3"), (5, "TOP 5"), (10, "TOP 10"), (0, "全部模型"))
     )
+    # 每日用量趋势：堆叠显示的模型数下拉（默认 TOP 8），与 JS 的 dailyTop 同源
+    daily_opts = "".join(
+        f'<option value="{value}"'
+        f'{" selected" if value == DEFAULT_DAILY_TOP else ""}>{label}</option>'
+        for value, label in ((2, "TOP 2"), (3, "TOP 3"), (5, "TOP 5"), (8, "TOP 8"), (0, "全部模型"))
+    )
     ws_total = len(summary.by_workspace)
     ws_note = (
         f"共 {ws_total:,} 个工作空间 · 显示前 {min(DEFAULT_WS_TOP, ws_total)} 个"
@@ -2087,6 +2105,7 @@ def render_html(
                  .replace("__DIST_TOP__", str(DEFAULT_DIST_TOP))
                  .replace("__WS_TOP__", str(DEFAULT_WS_TOP))
                  .replace("__HOUR_TOP__", str(DEFAULT_HOUR_TOP))
+                 .replace("__DAILY_TOP__", str(DEFAULT_DAILY_TOP))
                  .replace("__VIEW_DAYS__", str(DEFAULT_VIEW_DAYS)))
     replacements = {
         "__TITLE__": e(title),
@@ -2101,6 +2120,7 @@ def render_html(
         "__PLATOPTS__": plat_opts,
         "__WSOPTS__": ws_opts,
         "__HOUROPTS__": hour_opts,
+        "__DAILYOPTS__": daily_opts,
         "__WSNOTE__": ws_note,
         "__HERO__": hero,
         "__KPIS__": kpis,

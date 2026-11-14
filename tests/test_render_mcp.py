@@ -160,11 +160,13 @@ class TestRender(unittest.TestCase):
         self.assertIn("A.dmAll[dkA][r[1]]", html)
         self.assertIn("function dailyDays(A)", html)
         self.assertIn("orderByTokensAll(A)", html)   # 累计档 / 大小分布仍按总量排序
-        # 每日柱模型集合与左侧「按模型消耗」严格共用 visibleModels（窗口口径前 8），
-        # 左侧列表随周期/平台变化时右侧堆的模型与柱高同步联动。
+        # 每日柱模型集合改由本面板自己的「显示模型数量」下拉（dailyTop）控制，
+        # 不再与左侧「按模型消耗」共用全局前 8；JS 初始值与 Python 常量同源。
         self.assertIn("function visibleModels(A){return orderByTokens(A).slice(0,8);}", html)
-        self.assertIn("var top=visibleModels(A);", html)   # renderDaily 采用共用集合
-        self.assertIn("var order=visibleModels(A);", html)  # modelRows 采用共用集合
+        self.assertIn('id="dailyTop"', html)              # 面板自带 TOP 下拉
+        self.assertIn("var dailyTop=8;", html)            # JS 初始值（__DAILY_TOP__ 已替换为 DEFAULT_DAILY_TOP=8）
+        self.assertIn('value="8" selected', html)          # 下拉默认 TOP 8 与 JS 初始值同源
+        self.assertIn("var order=visibleModels(A);", html)  # modelRows 仍采用共用集合
         # 柱高基准只按可见模型累加，柱高才能跟随左侧列表
         self.assertIn("top.forEach(function(mi){t+=o[mi]||0;});", html)
         # 本月/跨度改为连续日轴（当月1日→今日），不再依赖有数据日做过滤
@@ -189,11 +191,11 @@ class TestRender(unittest.TestCase):
         self.assertIn("var legend=top.map(function(mi){", html)
 
     def test_static_daily_card_same_caliber(self):
-        """静态降级首屏 _daily_card 与 JS 版同口径：前 8 模型 + 每柱标日期 + 月份角标。"""
+        """静态降级首屏 _daily_card 与 JS 版同口径：前 DEFAULT_DAILY_TOP 模型 + 每柱标日期 + 月份角标。"""
         import inspect
         from tokenboard import render as rmod
         src = inspect.getsource(rmod._daily_card)
-        self.assertIn("top_models = summary.models[:8]", src)   # 模型集合前 8
+        self.assertIn("top_models = summary.models[:DEFAULT_DAILY_TOP]", src)   # 模型集合取面板默认数
         self.assertIn("compact = slot < 28", src)                # 同一紧凑阈值
         self.assertIn("f'{int(day[8:])}日' if compact else day[5:]", src)  # 每柱标日期
         self.assertIn("f'font-weight=\"600\">{last_m}月</text>'", src)     # 月份角标
